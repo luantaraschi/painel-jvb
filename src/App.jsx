@@ -2,20 +2,19 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from './supabaseClient';
 import { Toaster, toast } from 'sonner';
 import * as XLSX from 'xlsx';
+// Certifique-se de que estão instalados: npm install jspdf jspdf-autotable
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-// Imports para geração de Word (.docx)
 import { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, Header as DocHeader, Footer as DocFooter } from 'docx';
 import { saveAs } from 'file-saver';
-// Ícones
 import { 
-  Menu, Bell, Plus, Calendar, Copy, CheckCircle2, AlertCircle,
+  Plus, Calendar, Copy, CheckCircle2, AlertCircle,
   FileText, UploadCloud, Save, Loader2, X, Moon, Sun, Filter,
-  Search, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, LifeBuoy,
-  User as UserIcon, LogOut, FileIcon, Send, Activity, FileDown, FileInput, FileUp, FileCheck2, FileX2,
+  Search, ChevronDown, LifeBuoy,
+  User as UserIcon, LogOut, FileIcon, Send, Activity,
   RefreshCw, Lock, ExternalLink, Bot, MapPin, Briefcase, Clock, Settings,
-  FileSpreadsheet, File, Pencil, Check, Zap, Scale, FileSignature, AlertTriangle, PenTool, Trash2,
-  LayoutDashboard, CalendarDays, ChevronsUpDown, ChevronFirst, ChevronLast, ChevronsLeft, ChevronsRight
+  FileSpreadsheet, Pencil, Check, Scale, FileSignature, AlertTriangle, PenTool, Trash2,
+  LayoutDashboard, CalendarDays, AlertOctagon
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO DOS LINKS ---
@@ -23,7 +22,6 @@ const API_GET_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/processos";
 const API_UPLOAD_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/upload-pdf";
 const API_DRAFTER_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/minuta";
 const API_SOS_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/sos";
-// Certifique-se de criar este webhook no n8n (POST)
 const API_CHAT_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/chat-processo";
 
 // --- HELPER: Cores de Risco ---
@@ -33,6 +31,22 @@ const getRiskColor = (riskLevel = '') => {
   if (level.includes('médio') || level.includes('medio')) return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-200 dark:border-amber-800';
   if (level.includes('baixo')) return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200 border border-green-200 dark:border-green-800';
   return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700';
+};
+
+// --- HELPER: Formatar Data para Exibição ---
+const formatDateDisplay = (dateString) => {
+    if (!dateString) return '-';
+    try {
+        const datePart = dateString.includes('T') ? dateString.split('T')[0] : dateString;
+        const parts = datePart.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`; // Retorna DD/MM/AAAA
+        }
+        return datePart;
+    } catch (error) {
+        console.error(error); 
+        return dateString;
+    }
 };
 
 // --- 1. COMPONENTE DE LOGIN ---
@@ -67,7 +81,41 @@ const LoginPage = () => {
   );
 };
 
-// --- 2. MODAL DE PERFIL ---
+// --- 2. MODAL DE CONFIRMAÇÃO (NOVO E PROFISSIONAL) ---
+const ConfirmModal = ({ isOpen, onClose, onConfirm, title, description, loading }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4" onClick={!loading ? onClose : undefined}>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-sm w-full p-6 animate-fade-in border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+        <div className="flex flex-col items-center text-center">
+          <div className="bg-red-100 dark:bg-red-900/30 p-4 rounded-full mb-4">
+            <AlertOctagon className="w-8 h-8 text-red-600 dark:text-red-400" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{title}</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{description}</p>
+          <div className="flex gap-3 w-full">
+            <button 
+              onClick={onClose} 
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button 
+              onClick={onConfirm} 
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sim, Apagar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 2.5 MODAL DE PERFIL ---
 const ProfileModal = ({ isOpen, onClose, user, onUserUpdated }) => {
   const [fullName, setFullName] = useState(user?.user_metadata?.full_name || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.user_metadata?.avatar_url || '');
@@ -156,7 +204,7 @@ const ProfileModal = ({ isOpen, onClose, user, onUserUpdated }) => {
   );
 };
 
-// --- 2.5 MODAL SOS ---
+// --- 2.7 MODAL SOS ---
 const SosModal = ({ isOpen, onClose, user }) => {
   const [message, setMessage] = useState('');
   const [type, setType] = useState('bug');
@@ -260,7 +308,7 @@ const SosModal = ({ isOpen, onClose, user }) => {
 };
 
 // --- 3. HEADER ---
-const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user, onOpenProfile, isProcessing, currentView, setView }) => {
+const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user, onOpenProfile, isProcessing, currentView, setView, onClearDatabase }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const handleLogout = async () => { await supabase.auth.signOut(); };
@@ -285,6 +333,7 @@ const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user
         {isProcessing && (<div className="hidden lg:flex items-center space-x-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3 py-1.5 rounded-full border border-blue-100 dark:border-blue-800 animate-pulse"><Loader2 className="w-4 h-4 animate-spin" /><span className="text-xs font-bold uppercase tracking-wide">IA Trabalhando...</span></div>)}
       </div>
       <div className="flex items-center space-x-3">
+        <button onClick={onClearDatabase} className="p-2 rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Apagar TODOS os processos"><Trash2 className="w-5 h-5" /></button>
         <button onClick={onRefresh} disabled={loading} className={`p-2 rounded-full transition-colors ${loading ? 'text-blue-400 cursor-not-allowed' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`} title="Atualizar Lista"><RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} /></button>
         <button onClick={toggleDarkMode} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full text-gray-600 dark:text-gray-300 transition-colors">{darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button>
         <button onClick={onAddClick} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 font-medium shadow-sm transition-colors mr-2"><Plus className="w-5 h-5" /><span>Importar</span></button>
@@ -342,7 +391,7 @@ const AgendaView = ({ processes, onProcessClick }) => {
                                         <h3 className="font-semibold text-gray-800 dark:text-white">{process.cliente_nome}</h3>
                                         <p className="text-sm text-gray-500 mt-1">{process.prazo_ia ? `IA Detectou: "${process.prazo_ia}"` : 'Prazo manual definido.'}</p>
                                     </div>
-                                    <ChevronRight className="text-gray-300 group-hover:text-blue-500" />
+                                    <ChevronDown className="text-gray-300 group-hover:text-blue-500 -rotate-90" />
                                 </div>
                             </div>
                         ))}
@@ -401,28 +450,82 @@ const StatsBar = ({ processes }) => {
   );
 };
 
-// --- 5. FILTER BAR ---
-const FilterBar = ({ filters, setFilters, uniqueUFs, uniqueDates, onExportExcel, onExportPDF }) => {
-  return (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 flex flex-col gap-4 transition-colors">
-      <div className="flex flex-col md:flex-row gap-4 items-center">
-        <div className="relative w-full md:w-1/3"><Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" /><input type="text" placeholder="Buscar por Cliente ou CNJ..." className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 transition-all" value={filters.search} onChange={(e) => setFilters({...filters, search: e.target.value})} /></div>
-        <div className="relative w-full md:w-1/4"><Filter className="w-4 h-4 absolute left-3 top-3 text-gray-400" /><select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer" value={filters.status} onChange={(e) => setFilters({...filters, status: e.target.value})}><option value="">Todos os Status</option><option value="pendente">🟡 Pendentes</option><option value="analisado">🟢 Analisados</option><option value="frustrada">🔴 Frustrados</option></select><ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" /></div>
-        <div className="relative w-full md:w-1/6"><MapPin className="w-4 h-4 absolute left-3 top-3 text-gray-400" /><select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer" value={filters.uf} onChange={(e) => setFilters({...filters, uf: e.target.value})}><option value="">Todos UF</option>{uniqueUFs.map(uf => <option key={uf} value={uf}>{uf}</option>)}</select><ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" /></div>
-        <div className="relative w-full md:w-1/4"><Calendar className="w-4 h-4 absolute left-3 top-3 text-gray-400" /><select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer" value={filters.date} onChange={(e) => setFilters({...filters, date: e.target.value})}><option value="">Todas as Datas</option>{uniqueDates.map(date => ( <option key={date} value={date}>{date === 'Sem Data' ? 'Sem Data' : new Date(date).toLocaleDateString('pt-BR')}</option> ))}</select><ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" /></div>
+// --- 5. FILTER BAR (CORRIGIDA) ---
+const FilterBar = ({ filters, setFilters, uniqueUFs, uniqueDates, uniqueRisks, uniqueUploadDates, onExportExcel, onExportPDF }) => {
+    return (
+      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 flex flex-col gap-4 transition-colors">
+        <div className="flex flex-col xl:flex-row gap-3 items-center">
+          {/* Busca (20%) */}
+          <div className="relative w-full xl:w-[20%]">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+              <input type="text" placeholder="Buscar Cliente/CNJ..." className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 transition-all truncate" value={filters.search} onChange={(e) => setFilters({...filters, search: e.target.value})} />
+          </div>
+          
+          {/* Status (15%) */}
+          <div className="relative w-full xl:w-[15%]">
+              <Filter className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+              <select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer truncate" value={filters.status} onChange={(e) => setFilters({...filters, status: e.target.value})}>
+                  <option value="">Todos Status</option>
+                  <option value="pendente">🟡 Pendentes</option>
+                  <option value="analisado">🟢 Analisados</option>
+                  <option value="frustrada">🔴 Frustrados</option>
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" />
+          </div>
+
+          {/* Risco (15%) */}
+          <div className="relative w-full xl:w-[15%]">
+              <Activity className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+              <select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer truncate" value={filters.risk} onChange={(e) => setFilters({...filters, risk: e.target.value})}>
+                  <option value="">Todos Riscos</option>
+                  {uniqueRisks.map(risk => <option key={risk} value={risk}>{risk}</option>)}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" />
+          </div>
+  
+          {/* UF (10%) */}
+          <div className="relative w-full xl:w-[10%]">
+              <MapPin className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+              <select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer truncate" value={filters.uf} onChange={(e) => setFilters({...filters, uf: e.target.value})}>
+                  <option value="">Todos UF</option>
+                  {uniqueUFs.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" />
+          </div>
+  
+          {/* Data Andamento (20%) */}
+          <div className="relative w-full xl:w-[20%]">
+              <Calendar className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+              <select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer truncate" value={filters.date} onChange={(e) => setFilters({...filters, date: e.target.value})}>
+                  <option value="">Data Andamento</option>
+                  {uniqueDates.map(date => ( <option key={date} value={date}>{formatDateDisplay(date)}</option> ))}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" />
+          </div>
+  
+          {/* Data Upload (20%) */}
+          <div className="relative w-full xl:w-[20%]">
+              <UploadCloud className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+              <select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer truncate" value={filters.uploadDate} onChange={(e) => setFilters({...filters, uploadDate: e.target.value})}>
+                  <option value="">Data Upload</option>
+                  {uniqueUploadDates.map(date => ( <option key={date} value={date}>{formatDateDisplay(date)}</option> ))}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" />
+          </div>
+        </div>
+  
+        <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+          <button onClick={onExportExcel} className="flex items-center px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-md transition-colors dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/40"><FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" /> Exportar Excel</button>
+          <button onClick={onExportPDF} className="flex items-center px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/40"><FileIcon className="w-3.5 h-3.5 mr-1.5" /> Exportar PDF</button>
+        </div>
       </div>
-      <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-        <button onClick={onExportExcel} className="flex items-center px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-md transition-colors dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/40"><FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" /> Exportar Excel</button>
-        <button onClick={onExportPDF} className="flex items-center px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/40"><FileIcon className="w-3.5 h-3.5 mr-1.5" /> Exportar PDF</button>
-      </div>
-    </div>
-  );
-};
+    );
+  };
 
 // --- 6. UPLOAD MODAL ---
 const UploadModal = ({ isOpen, onClose, onUpload }) => {
   const [file, setFile] = useState(null);
-  
+   
   if (!isOpen) return null;
   const handleSubmit = () => {
     if (!file) return toast.warning("Selecione um arquivo!");
@@ -520,7 +623,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
       try {
         const { data } = await supabase.from('tarefas').select('*').eq('processo_id', process.id).order('created_at', { ascending: false });
         if (data) { setTaskHistory(data); if (data.length > 0 && data[0].status_tarefa !== 'minuta') setCurrentStatus(data[0].status_tarefa || 'pendente'); }
-      } catch (err) { console.error('Erro:', err); } finally { setLoadingData(false); }
+      } catch (error) { console.error('Erro:', error); } finally { setLoadingData(false); }
     };
     if (process?.id) loadTasks();
   }, [process, draftState.text]); 
@@ -659,7 +762,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
   }
 
   const dataFormatada = process.data_andamento ? new Date(process.data_andamento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : '-';
-  
+   
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto animate-fade-in flex flex-col border border-gray-200 dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
@@ -887,8 +990,12 @@ function App() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSosOpen, setIsSosOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false); // Estado para o modal de exclusão
   const [darkMode, setDarkMode] = useState(() => { const saved = localStorage.getItem('theme'); return saved === 'dark'; });
-  const [filters, setFilters] = useState({ search: '', status: '', uf: '', date: '' });
+  
+  // Filtros
+  const [filters, setFilters] = useState({ search: '', status: '', uf: '', date: '', risk: '', uploadDate: '' });
+  
   const [isBackgroundProcessing, setIsBackgroundProcessing] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard');
   const [drafts, setDrafts] = useState({}); 
@@ -912,13 +1019,28 @@ function App() {
       .then(response => response.json())
       .then(data => {
         const listaRaw = Array.isArray(data) ? data : (data.data || []);
+        
+        if (listaRaw.length > 0) {
+            console.group("DEBUG - DADOS N8N");
+            console.log("Objeto completo do processo:", listaRaw[0]);
+            // Check seguro sem prototype
+            if (!('created_at' in listaRaw[0])) {
+                console.warn("ALERTA CRÍTICO: O n8n não está enviando o campo 'created_at'.");
+                console.log("Campos disponíveis:", Object.keys(listaRaw[0]));
+            } else {
+                console.log("Valor de created_at:", listaRaw[0].created_at);
+            }
+            console.groupEnd();
+        }
+
         const agrupadosMap = listaRaw.reduce((acc, item) => {
           const cnj = item.numero_cnj;
-          if (!acc[cnj]) { acc[cnj] = { ...item, total_updates: 0, history: [] }; }
+          if (!acc[cnj]) { 
+              acc[cnj] = { ...item, total_updates: 0, history: [] }; 
+          }
           acc[cnj].history.push(item);
           acc[cnj].total_updates += 1;
-          acc[cnj].risco = item.risco || acc[cnj].risco;
-          acc[cnj].analise_risco = item.analise_risco || acc[cnj].analise_risco;
+          
           if (new Date(item.data_andamento) > new Date(acc[cnj].data_andamento)) {
             acc[cnj].texto_resumo = item.texto_resumo;
             acc[cnj].data_andamento = item.data_andamento;
@@ -929,12 +1051,18 @@ function App() {
           }
           return acc;
         }, {});
+        
         const listaUnica = Object.values(agrupadosMap);
-        listaUnica.sort((a, b) => new Date(b.created_at || b.data_andamento) - new Date(a.created_at || a.data_andamento));
+        listaUnica.sort((a, b) => {
+            const dateA = new Date(a.created_at || a.data_andamento);
+            const dateB = new Date(b.created_at || b.data_andamento);
+            return dateB - dateA;
+        });
+        
         setProcesses(listaUnica);
         if (!silent) setLoading(false);
       })
-      .catch(err => { console.error("Erro:", err); if (!silent) setLoading(false); });
+      .catch(error => { console.error("Erro no fetch:", error); if (!silent) setLoading(false); });
   }, [session]);
 
   useEffect(() => { fetchProcesses(); }, [fetchProcesses]);
@@ -950,24 +1078,44 @@ function App() {
   const handleUpdateProcessStatus = (processId, newStatus) => {
     setProcesses(prev => prev.map(p => p.id === processId ? { ...p, status_manual: newStatus } : p));
   };
-
   const handleUpdateProcessData = (processId, newData) => {
     setProcesses(prev => prev.map(p => p.id === processId ? { ...p, ...newData } : p));
   };
-
   const handleFileUpload = (file) => {
     setIsUploadOpen(false);
-    toast.success('Upload iniciado! O processamento da IA ocorrerá em segundo plano.');
+    toast.success('Upload iniciado! IA processando...');
     setIsBackgroundProcessing(true);
     const formData = new FormData();
     formData.append('file', file);
     fetch(API_UPLOAD_URL, { method: 'POST', body: formData })
       .then(() => {
-          toast.success('Processamento concluído pelo servidor!');
+          toast.success('Processamento concluído!');
           fetchProcesses(); 
           setIsBackgroundProcessing(false);
       })
-      .catch((error) => { console.error('Erro:', error); toast.error('Ocorreu um erro no envio para o servidor.'); setIsBackgroundProcessing(false); });
+      .catch((error) => { console.error('Erro:', error); toast.error('Erro no envio.'); setIsBackgroundProcessing(false); });
+  };
+
+  // Funcao para limpar DB (EXECUÇÃO REAL)
+  const executeClearDatabase = async () => {
+      setLoading(true);
+      try {
+          // Deleta onde ID não é nulo (apaga tudo)
+          const { error: errorTasks } = await supabase.from('tarefas').delete().not('id', 'is', null);
+          if(errorTasks) throw errorTasks;
+
+          const { error: errorProcess } = await supabase.from('processos').delete().not('id', 'is', null);
+          if(errorProcess) throw errorProcess;
+
+          setProcesses([]);
+          toast.success("Banco de dados limpo com sucesso!");
+          setIsDeleteModalOpen(false);
+      } catch (error) {
+          console.error(error);
+          toast.error("Erro ao limpar banco: " + error.message);
+      } finally {
+          setLoading(false);
+      }
   };
 
   const findTextInObject = (obj) => {
@@ -987,127 +1135,99 @@ function App() {
 
   const handleGenerateDraft = async (processId, resumo) => {
     setDrafts(prev => ({ ...prev, [processId]: { loading: true, text: '' } }));
-    toast.info("IA iniciou a redação da minuta em segundo plano...");
-
+    toast.info("IA iniciou a redação da minuta...");
     try {
       const response = await fetch(API_DRAFTER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ texto_resumo: resumo })
       });
-      
       const data = await response.json();
       const finalText = findTextInObject(data);
-
       const { error } = await supabase.from('tarefas').insert({
-          processo_id: processId,
-          user_id: session.user.id,
-          relato: 'Minuta de Resposta Gerada via IA',
-          acao_feita: finalText,
-          status_tarefa: 'minuta' 
+          processo_id: processId, user_id: session.user.id, relato: 'Minuta IA', acao_feita: finalText, status_tarefa: 'minuta' 
       });
-
       if (error) throw error;
-
       setDrafts(prev => ({ ...prev, [processId]: { loading: false, text: finalText } }));
-      toast.success(`Minuta pronta e salva no histórico!`);
-
+      toast.success(`Minuta pronta!`);
     } catch (error) {
       console.error(error);
       setDrafts(prev => ({ ...prev, [processId]: { loading: false, text: "Erro na geração." } }));
       toast.error("Erro ao gerar minuta.");
     }
   };
-
   const handleDeleteTask = async (taskId) => {
-      try {
-          const { error } = await supabase.from('tarefas').delete().eq('id', taskId);
-          if (error) throw error;
-          toast.success("Item removido da linha do tempo.");
-      } catch (error) {
-          console.error(error);
-          toast.error("Erro ao excluir.");
+      if(window.confirm("Tem certeza que deseja excluir este item?")) {
+          try {
+              const { error } = await supabase.from('tarefas').delete().eq('id', taskId);
+              if (error) throw error;
+              toast.success("Item removido.");
+          } catch (error) { console.error(error); toast.error("Erro ao excluir."); }
       }
   };
 
+  // --- LÓGICA DE FILTROS ---
+  
+  const uniqueUFs = useMemo(() => [...new Set(processes.map(p => p.estado_uf))].sort(), [processes]);
+  const uniqueRisks = useMemo(() => [...new Set(processes.map(p => p.risco).filter(Boolean))].sort(), [processes]);
+
+  // Data do Andamento
+  const uniqueDates = useMemo(() => [...new Set(processes.map(p => { 
+      const raw = p.data_andamento; 
+      if (!raw) return null;
+      try { return raw.includes('T') ? raw.split('T')[0] : raw; } catch(error) { console.error(error); return null; }
+  }))].filter(Boolean).sort().reverse(), [processes]);
+  
+  // Data de Upload (created_at) - COM FALLBACK
+  // Data de Upload (created_at) - COM TRATAMENTO MELHORADO
+  const uniqueUploadDates = useMemo(() => {
+    const dates = processes.map(p => {
+      // Prioriza created_at, se não tiver, usa data_andamento
+      const raw = p.created_at || p.data_andamento; 
+      
+      if (!raw) return null;
+      
+      try {
+          // O Supabase geralmente retorna ISO string (2025-12-03T15:00:00)
+          // Precisamos apenas da parte YYYY-MM-DD para o filtro funcionar
+          return raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
+      } catch (error) {
+          console.error("Erro ao processar data:", raw, error);
+          return null;
+      }
+  });
+  // Remove duplicatas e nulos, e ordena
+  return [...new Set(dates)].filter(Boolean).sort().reverse();
+}, [processes]);
+  // Filtragem Principal
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
       const searchMatch = p.cliente_nome?.toLowerCase().includes(filters.search.toLowerCase()) || p.numero_cnj?.includes(filters.search);
       const currentStatus = p.status_manual || p.status || 'pendente';
       const statusMatch = filters.status ? currentStatus.toLowerCase() === filters.status : true;
       const ufMatch = filters.uf ? p.estado_uf === filters.uf : true;
-      const rawDate = p.created_at || p.data_andamento;
-      const dateMatch = filters.date ? rawDate && rawDate.startsWith(filters.date) : true;
-      return searchMatch && statusMatch && ufMatch && dateMatch;
+      const riskMatch = filters.risk ? (p.risco && p.risco === filters.risk) : true;
+      
+      // Data Andamento
+      let dateMatch = true;
+      if (filters.date) {
+         const pDate = p.data_andamento ? (p.data_andamento.includes('T') ? p.data_andamento.split('T')[0] : p.data_andamento) : '';
+         dateMatch = pDate === filters.date;
+      }
+
+      // Data Upload
+      let uploadMatch = true;
+      if (filters.uploadDate) {
+         const rawUpload = p.created_at || p.data_andamento;
+         const uDate = rawUpload ? (rawUpload.includes('T') ? rawUpload.split('T')[0] : rawUpload) : '';
+         uploadMatch = uDate === filters.uploadDate;
+      }
+
+      return searchMatch && statusMatch && ufMatch && dateMatch && riskMatch && uploadMatch;
     });
   }, [processes, filters]);
 
-  const exportToExcel = () => {
-    const dataToExport = filteredProcesses.map(p => ({
-      'CNJ': p.numero_cnj,
-      'Cliente': p.cliente_nome,
-      'Tribunal': p.tribunal,
-      'UF': p.estado_uf,
-      'Status': (p.status_manual || p.status || 'pendente').toUpperCase(),
-      'Risco': p.risco || '-',
-      'Data Andamento': new Date(p.data_andamento).toLocaleDateString('pt-BR'),
-      'Último Resumo': p.texto_resumo
-    }));
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Processos");
-    XLSX.writeFile(workbook, `Relatorio_JVB_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`);
-    toast.success("Relatório Excel gerado!");
-  };
-
-  const exportToPDF = () => {
-    try {
-      const doc = new jsPDF();
-      doc.text(`Relatório de Processos - JVB`, 14, 15);
-      doc.setFontSize(10);
-      doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 20);
-      doc.text(`Filtros: Status: ${filters.status || 'Todos'} | UF: ${filters.uf || 'Todos'}`, 14, 25);
-
-      const tableColumn = ["CNJ", "Cliente", "UF", "Status", "Risco", "Data"];
-      const tableRows = [];
-
-      filteredProcesses.forEach(process => {
-        const processData = [
-          process.numero_cnj,
-          process.cliente_nome,
-          process.estado_uf,
-          (process.status_manual || process.status || 'pendente').toUpperCase(),
-          process.risco || '-',
-          new Date(process.data_andamento).toLocaleDateString('pt-BR')
-        ];
-        tableRows.push(processData);
-      });
-
-      autoTable(doc, {
-        head: [tableColumn],
-        body: tableRows,
-        startY: 30,
-        styles: { fontSize: 8 },
-        headStyles: { fillColor: [41, 128, 185] }
-      });
-
-      doc.save(`Relatorio_JVB_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.pdf`);
-      toast.success("Relatório PDF gerado!");
-    } catch (error) {
-      console.error(error);
-      toast.error("Erro ao gerar PDF. Verifique o console.");
-    }
-  };
-
-  const uniqueUFs = useMemo(() => [...new Set(processes.map(p => p.estado_uf))].sort(), [processes]);
-  const uniqueDates = useMemo(() => [...new Set(processes.map(p => { const raw = p.created_at || p.data_andamento; return raw ? raw.split('T')[0] : 'Sem Data'; }))].sort().reverse(), [processes]);
-
-  const processesByUF = filteredProcesses.reduce((acc, p) => { 
-    const uf = p.estado_uf || 'Outros';
-    (acc[uf] = acc[uf] || []).push(p); 
-    return acc; 
-  }, {});
-
+  // --- DEFINIÇÃO DO COMPONENTE UFGROUP (AGORA DENTRO DO ESCOPO CORRETO) ---
   const UFGroup = ({ uf, processes, onProcessClick, drafts }) => {
     const [isExpanded, setIsExpanded] = useState(true);
     return (
@@ -1128,21 +1248,113 @@ function App() {
     );
   };
 
+  // Funções de exportação que usam filteredProcesses
+  const exportToExcel = () => {
+    const dataToExport = filteredProcesses.map(p => ({
+      'CNJ': p.numero_cnj,
+      'Cliente': p.cliente_nome,
+      'Tribunal': p.tribunal,
+      'UF': p.estado_uf,
+      'Status': (p.status_manual || p.status || 'pendente').toUpperCase(),
+      'Risco': p.risco || '-',
+      'Data Andamento': formatDateDisplay(p.data_andamento),
+      'Data Upload': formatDateDisplay(p.created_at || p.data_andamento),
+      'Último Resumo': p.texto_resumo
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Processos");
+    XLSX.writeFile(workbook, `Relatorio_JVB_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`);
+    toast.success("Relatório Excel gerado!");
+  };
+
+  const exportToPDF = () => {
+    try {
+      const doc = new jsPDF();
+      doc.text(`Relatório de Processos - JVB`, 14, 15);
+      doc.setFontSize(10);
+      doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 20);
+      doc.text(`Filtros: Status: ${filters.status || 'Todos'} | UF: ${filters.uf || 'Todos'}`, 14, 25);
+
+      const tableColumn = ["CNJ", "Cliente", "UF", "Status", "Risco", "Data Andamento", "Data Upload"];
+      const tableRows = [];
+
+      filteredProcesses.forEach(process => {
+        const processData = [
+          process.numero_cnj,
+          process.cliente_nome,
+          process.estado_uf,
+          (process.status_manual || process.status || 'pendente').toUpperCase(),
+          process.risco || '-',
+          formatDateDisplay(process.data_andamento),
+          formatDateDisplay(process.created_at || process.data_andamento)
+        ];
+        tableRows.push(processData);
+      });
+
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 30,
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [41, 128, 185] }
+      });
+
+      doc.save(`Relatorio_JVB_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.pdf`);
+      toast.success("Relatório PDF gerado!");
+    } catch (error) {
+      console.error(error);
+      toast.error("Erro ao gerar PDF. Verifique o console.");
+    }
+  };
+
+  // --- DEFINIÇÃO DE processesByUF (AGORA DENTRO DO ESCOPO CORRETO) ---
+  const processesByUF = filteredProcesses.reduce((acc, p) => { 
+    const uf = p.estado_uf || 'Outros';
+    if (!acc[uf]) acc[uf] = [];
+    acc[uf].push(p); 
+    return acc; 
+  }, {});
+
   if (!session) return <><Toaster position="top-center" /><LoginPage /></>;
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 font-sans flex flex-col transition-colors duration-200">
       <Toaster position="top-right" richColors />
-      <Header onAddClick={() => setIsUploadOpen(true)} onRefresh={() => fetchProcesses(false)} loading={loading} darkMode={darkMode} toggleDarkMode={() => setDarkMode(!darkMode)} user={session.user} onOpenProfile={() => setIsProfileOpen(true)} isProcessing={isBackgroundProcessing} currentView={currentView} setView={setCurrentView} />
+      <Header 
+        onAddClick={() => setIsUploadOpen(true)} 
+        onRefresh={() => fetchProcesses(false)} 
+        loading={loading} 
+        darkMode={darkMode} 
+        toggleDarkMode={() => setDarkMode(!darkMode)} 
+        user={session.user} 
+        onOpenProfile={() => setIsProfileOpen(true)} 
+        isProcessing={isBackgroundProcessing} 
+        currentView={currentView} 
+        setView={setCurrentView}
+        onClearDatabase={() => setIsDeleteModalOpen(true)}
+      />
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
         {currentView === 'agenda' ? (
             <AgendaView processes={processes} onProcessClick={(p) => setSelectedProcess(p)} />
         ) : (
             <>
                 <StatsBar processes={filteredProcesses} />
-                <FilterBar filters={filters} setFilters={setFilters} uniqueUFs={uniqueUFs} uniqueDates={uniqueDates} onExportExcel={exportToExcel} onExportPDF={exportToPDF} />
+                
+                {/* FilterBar LIMPA (sem props extras) */}
+                <FilterBar 
+                  filters={filters} 
+                  setFilters={setFilters} 
+                  uniqueUFs={uniqueUFs} 
+                  uniqueDates={uniqueDates} 
+                  uniqueRisks={uniqueRisks}
+                  uniqueUploadDates={uniqueUploadDates} 
+                  onExportExcel={exportToExcel} 
+                  onExportPDF={exportToPDF} 
+                />
+                
                 <div className="mb-6 flex items-center justify-between"><p className="text-gray-600 dark:text-gray-400">Visualizando <strong>{filteredProcesses.length}</strong> processos encontrados.</p>{loading && <div className="flex items-center text-blue-600 dark:text-blue-400"><Loader2 className="w-5 h-5 animate-spin mr-2"/> Carregando dados...</div>}</div>
-                {!loading && filteredProcesses.length === 0 && (<div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700"><p className="text-gray-500 dark:text-gray-400">Nenhum processo encontrado com estes filtros.</p><button onClick={() => setFilters({search:'', status:'', uf:'', date:''})} className="mt-4 text-blue-500 hover:underline">Limpar Filtros</button></div>)}
+                {!loading && filteredProcesses.length === 0 && (<div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700"><p className="text-gray-500 dark:text-gray-400">Nenhum processo encontrado com estes filtros.</p><button onClick={() => setFilters({search:'', status:'', uf:'', date:'', risk: '', uploadDate:''})} className="mt-4 text-blue-500 hover:underline">Limpar Filtros</button></div>)}
                 <div className="space-y-4">
                   {Object.entries(processesByUF).sort(([ufA], [ufB]) => ufA.localeCompare(ufB)).map(([uf, items]) => (<UFGroup key={uf} uf={uf} processes={items} onProcessClick={setSelectedProcess} drafts={drafts} />))}
                 </div>
@@ -1158,6 +1370,14 @@ function App() {
       <UploadModal isOpen={isUploadOpen} onClose={() => setIsUploadOpen(false)} onUpload={handleFileUpload} />
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={session.user} onUserUpdated={(updatedUser) => setSession(prev => prev ? { ...prev, user: updatedUser } : prev)} />
       <SosModal isOpen={isSosOpen} onClose={() => setIsSosOpen(false)} user={session.user} />
+      <ConfirmModal 
+        isOpen={isDeleteModalOpen} 
+        onClose={() => setIsDeleteModalOpen(false)} 
+        onConfirm={executeClearDatabase} 
+        loading={loading}
+        title="Apagar TODOS os processos?" 
+        description="Esta ação removerá permanentemente todos os processos e seus históricos do banco de dados. Tem certeza absoluta?" 
+      />
     </div>
   );
 }
