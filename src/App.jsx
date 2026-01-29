@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import { supabase } from './supabaseClient';
+import { supabase, logAction } from './supabaseClient';
 
 import { Toaster, toast } from 'sonner';
 
@@ -30,7 +30,7 @@ import {
 
   FileSpreadsheet, Pencil, Check, Scale, FileSignature, AlertTriangle, PenTool, Trash2,
 
-  LayoutDashboard, CalendarDays, AlertOctagon
+  LayoutDashboard, CalendarDays, AlertOctagon, TrendingUp
 
 } from 'lucide-react';
 
@@ -46,7 +46,7 @@ const API_DRAFTER_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/minuta";
 
 const API_SOS_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/sos";
 
-const API_CHAT_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/chat-processo";
+const API_CHAT_URL = import.meta.env.VITE_CHAT_URL || "/api/chat-processo";
 
 
 
@@ -113,53 +113,29 @@ const LoginPage = () => {
 
 
   const handleLogin = async (e) => {
-
     e.preventDefault();
-
     setLoading(true);
-
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) { toast.error('Erro ao entrar: Verifique suas credenciais.'); setLoading(false); }
-
+    if (error) { toast.error('Erro ao entrar: ' + error.message); setLoading(false); }
     else { toast.success('Bem-vindo ao Painel JVB!'); }
-
   };
 
-
-
   return (
-
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-
       <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-gray-200">
-
         <div className="flex flex-col items-center mb-8">
-
           <div className="bg-blue-600 p-3 rounded-xl mb-4 shadow-lg shadow-blue-200"><Lock className="w-8 h-8 text-white" /></div>
-
           <h1 className="text-2xl font-bold text-gray-800">Painel JVB</h1>
-
           <p className="text-gray-500 text-sm mt-2">Acesso restrito à equipe jurídica</p>
-
         </div>
-
         <form onSubmit={handleLogin} className="space-y-5">
-
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" required className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="seu@email.com" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Senha</label><input type="password" required className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-
           <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex justify-center items-center">{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entrar no Sistema'}</button>
-
         </form>
-
       </div>
-
     </div>
-
   );
-
 };
 
 
@@ -616,9 +592,112 @@ const SosModal = ({ isOpen, onClose, user }) => {
 
 
 
+// --- 2.9 ADMIN DASHBOARD ---
+const AdminDashboard = ({ onBack }) => {
+  const [stats, setStats] = useState({ totalUsers: 0, activeToday: 0, totalActions: 0 });
+  const [logs, setLogs] = useState([]);
+  const [ranking, setRanking] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const { data: audit, error: auditErr } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
+        if (auditErr) throw auditErr;
+        const { data: profiles, error: profErr } = await supabase.from('profiles').select('*');
+        if (profErr) throw profErr;
+
+        const userMap = {};
+        profiles.forEach(p => userMap[p.id] = p.user_metadata?.full_name || p.email || 'User');
+
+        const counts = {};
+        audit.forEach(l => {
+             const n = userMap[l.user_id] || 'Desc.';
+             counts[n] = (counts[n] || 0) + 1;
+        });
+        
+        const rank = Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count);
+        
+        const today = new Date();
+        const activeToday = new Set(audit.filter(l => {
+            const d = new Date(l.created_at);
+            return d.getDate() === today.getDate() && d.getMonth() === today.getMonth();
+        }).map(l => l.user_id)).size;
+
+        setStats({ totalUsers: profiles.length, activeToday, totalActions: audit.length });
+        setLogs(audit.map(l => ({ ...l, userName: userMap[l.user_id] })));
+        setRanking(rank);
+      } catch (e) { console.error(e); toast.error("Erro ao carregar dados admin"); } 
+      finally { setLoading(false); }
+    };
+    fetchData();
+  }, []);
+
+  return (
+    <div className="animate-fade-in space-y-6">
+       <div className="flex items-center space-x-2 mb-6">
+        <button onClick={onBack} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><LayoutDashboard className="w-5 h-5 text-gray-500" /></button>
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center"><Activity className="w-6 h-6 mr-2 text-blue-600" /> Painel Administrativo</h2>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
+            <div><p className="text-sm text-gray-500">Usuários Totais</p><h3 className="text-3xl font-bold text-gray-800 dark:text-white">{stats.totalUsers}</h3></div>
+            <UserIcon className="w-8 h-8 text-blue-200" />
+         </div>
+         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
+            <div><p className="text-sm text-gray-500">Ativos Hoje</p><h3 className="text-3xl font-bold text-green-600">{stats.activeToday}</h3></div>
+            <Activity className="w-8 h-8 text-green-200" />
+         </div>
+         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
+            <div><p className="text-sm text-gray-500">Ações (Log)</p><h3 className="text-3xl font-bold text-purple-600">{stats.totalActions}</h3></div>
+            <FileSignature className="w-8 h-8 text-purple-200" />
+         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-yellow-500"/> Produtividade</h3>
+            <div className="space-y-4">
+                {ranking.map((u, i) => (
+                    <div key={i} className="flex items-center">
+                        <span className="font-bold mr-3 w-6">{i+1}</span>
+                        <div className="flex-1">
+                            <div className="flex justify-between text-sm mb-1"><span className="text-gray-700 dark:text-gray-300">{u.name}</span><span className="text-gray-500">{u.count}</span></div>
+                            <div className="w-full bg-gray-100 h-1.5 rounded-full"><div className="bg-blue-600 h-1.5 rounded-full" style={{width: `${(u.count/ranking[0].count)*100}%`}}></div></div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+
+        <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="p-4 border-b border-gray-100 dark:border-gray-700"><h3 className="font-bold text-gray-800 dark:text-white">Audit Log</h3></div>
+            <div className="overflow-x-auto max-h-[400px]">
+                <table className="w-full text-sm text-left">
+                    <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0"><tr><th className="p-3">Data</th><th className="p-3">Usuário</th><th className="p-3">Ação</th><th className="p-3">Ref</th></tr></thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                        {logs.map(l => (
+                            <tr key={l.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                <td className="p-3 text-gray-500 whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</td>
+                                <td className="p-3 font-medium text-gray-800 dark:text-gray-200">{l.userName}</td>
+                                <td className="p-3"><span className="px-2 py-1 bg-gray-100 rounded text-xs">{l.action}</span></td>
+                                <td className="p-3 text-gray-400 text-xs truncate max-w-[100px]">{l.target_id || '-'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- 3. HEADER ---
 
-const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user, onOpenProfile, isProcessing, currentView, setView, onClearDatabase }) => {
+const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user, onOpenProfile, isProcessing, currentView, setView, onClearDatabase, userRole }) => {
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -659,6 +738,10 @@ const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user
             <button onClick={() => setView('dashboard')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center ${currentView === 'dashboard' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}><LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard</button>
 
             <button onClick={() => setView('agenda')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center ${currentView === 'agenda' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}><CalendarDays className="w-4 h-4 mr-2" /> Agenda</button>
+            
+            {userRole === 'admin' && (
+               <button onClick={() => setView('admin')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center ${currentView === 'admin' ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-purple-600'}`}><Activity className="w-4 h-4 mr-2" /> Admin</button>
+            )}
 
         </nav>
 
@@ -668,7 +751,9 @@ const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user
 
       <div className="flex items-center space-x-3">
 
-        <button onClick={onClearDatabase} className="p-2 rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Apagar TODOS os processos"><Trash2 className="w-5 h-5" /></button>
+        {userRole === 'admin' && (
+          <button onClick={onClearDatabase} className="p-2 rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Apagar TODOS os processos"><Trash2 className="w-5 h-5" /></button>
+        )}
 
         <button onClick={onRefresh} disabled={loading} className={`p-2 rounded-full transition-colors ${loading ? 'text-blue-400 cursor-not-allowed' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`} title="Atualizar Lista"><RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} /></button>
 
@@ -714,21 +799,297 @@ const Header = ({ onAddClick, onRefresh, loading, darkMode, toggleDarkMode, user
 
 // --- 4. AGENDA VIEW ---
 
-const AgendaView = ({ processes, onProcessClick }) => {
+const AgendaView = ({ processes, onProcessClick, onUpdateData }) => {
 
-    const processosComPrazo = processes.filter(p => p.prazo_ia || p.data_prazo_final);
+  const [editingId, setEditingId] = useState(null);
 
-    processosComPrazo.sort((a, b) => {
+  const [editingDate, setEditingDate] = useState('');
 
-        if (a.data_prazo_final && b.data_prazo_final) return new Date(a.data_prazo_final) - new Date(b.data_prazo_final);
+  const [savingId, setSavingId] = useState(null);
 
-        if (a.data_prazo_final) return -1;
+  const [agendaViewMode, setAgendaViewMode] = useState('grid');
 
-        if (b.data_prazo_final) return 1;
 
-        return 0;
 
-    });
+  const normalizeDate = (value) => {
+
+    if (!value) return '';
+
+    return value.includes('T') ? value.split('T')[0] : value;
+
+  };
+
+
+
+  const parsePrazoIaDate = (prazoText) => {
+
+    if (!prazoText) return '';
+
+    const match = prazoText.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/);
+
+    if (!match) return '';
+
+    const day = match[1];
+
+    const month = match[2];
+
+    const yearRaw = match[3];
+
+    const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+
+    return `${year}-${month}-${day}`;
+
+  };
+
+
+
+  const getEffectiveDate = (process) => {
+
+    if (process.data_prazo_final) return { date: normalizeDate(process.data_prazo_final), inferred: false };
+
+    const inferred = parsePrazoIaDate(process.prazo_ia);
+
+    return inferred ? { date: inferred, inferred: true } : { date: '', inferred: false };
+
+  };
+
+
+
+  const getDaysToDue = (dateStr) => {
+
+    if (!dateStr) return null;
+
+    const today = new Date();
+
+    today.setHours(0, 0, 0, 0);
+
+    const due = new Date(dateStr);
+
+    due.setHours(0, 0, 0, 0);
+
+    return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+
+  };
+
+
+
+  const processosComPrazo = processes.filter(p => p.prazo_ia || p.data_prazo_final);
+
+  processosComPrazo.sort((a, b) => {
+
+    const aDate = getEffectiveDate(a).date;
+
+    const bDate = getEffectiveDate(b).date;
+
+    if (aDate && bDate) return new Date(aDate) - new Date(bDate);
+
+    if (aDate) return -1;
+
+    if (bDate) return 1;
+
+    return 0;
+
+  });
+
+
+
+  const handleEditDate = (process) => {
+
+    setEditingId(process.id);
+
+    setEditingDate(normalizeDate(process.data_prazo_final) || '');
+
+  };
+
+
+
+  const handleSaveDate = async (process) => {
+
+    if (!editingDate) return toast.warning('Defina uma data válida.');
+
+    setSavingId(process.id);
+
+    try {
+
+      const { error } = await supabase.from('processos').update({ data_prazo_final: editingDate }).eq('id', process.id);
+
+      if (error) throw error;
+
+      onUpdateData?.(process.id, { data_prazo_final: editingDate });
+
+      toast.success('Prazo atualizado!');
+
+      setEditingId(null);
+
+      setEditingDate('');
+
+    } catch (error) {
+
+      console.error(error);
+
+      toast.error('Erro ao salvar prazo: ' + error.message);
+
+    } finally {
+
+      setSavingId(null);
+
+    }
+
+  };
+
+
+
+  const classify = (process) => {
+
+    const dateValue = getEffectiveDate(process).date;
+
+    if (!dateValue) return { group: 'sem-data', days: null };
+
+    const days = getDaysToDue(dateValue);
+
+    if (days < 0) return { group: 'vencidos', days };
+
+    if (days === 0) return { group: 'hoje', days };
+
+    if (days <= 7) return { group: 'proximos', days };
+
+    return { group: 'futuros', days };
+
+  };
+
+
+
+  const grouped = processosComPrazo.reduce((acc, process) => {
+
+    const { group, days } = classify(process);
+
+    if (!acc[group]) acc[group] = [];
+
+    acc[group].push({ process, days });
+
+    return acc;
+
+  }, {});
+
+
+
+  const renderCard = ({ process, days }) => {
+
+    const { date: dateValue, inferred } = getEffectiveDate(process);
+
+    const isEditing = editingId === process.id;
+
+    const statusText = days === null
+
+      ? 'Sem data definida'
+
+      : days < 0
+
+        ? `Vencido há ${Math.abs(days)} dia${Math.abs(days) !== 1 ? 's' : ''}`
+
+        : days === 0
+
+          ? 'Vence hoje'
+
+          : `Faltam ${days} dia${days !== 1 ? 's' : ''}`;
+
+    const statusClass = days === null
+
+      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+
+      : days < 0
+
+        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+
+        : days <= 7
+
+          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+
+          : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+
+    return (
+
+      <div key={process.id} className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+
+        <div className="flex justify-between items-start gap-4">
+
+          <div className="flex-1 min-w-0">
+
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+
+              <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs font-mono px-2 py-0.5 rounded">{process.numero_cnj}</span>
+
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded ${statusClass}`}>{statusText}</span>
+
+              {inferred && <span className="text-[11px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">Data inferida</span>}
+
+            </div>
+
+            <h3 className="font-semibold text-gray-800 dark:text-white truncate">{process.cliente_nome || 'Sem cliente'}</h3>
+
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{process.prazo_ia ? `IA Detectou: "${process.prazo_ia}"` : 'Prazo manual definido.'}</p>
+
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+
+              {isEditing ? (
+
+                <>
+
+                  <input type="date" value={editingDate} onChange={(e) => setEditingDate(e.target.value)} className="text-xs p-1.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white" />
+
+                  <button onClick={() => handleSaveDate(process)} disabled={savingId === process.id} className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">
+
+                    {savingId === process.id ? 'Salvando...' : 'Salvar'}
+
+                  </button>
+
+                  <button onClick={() => { setEditingId(null); setEditingDate(''); }} className="text-xs px-3 py-1.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200">Cancelar</button>
+
+                </>
+
+              ) : (
+
+                <>
+
+                  {dateValue ? (
+
+                    <span className="text-xs text-gray-600 dark:text-gray-400">Vencimento: <strong>{formatDateDisplay(dateValue)}</strong></span>
+
+                  ) : (
+
+                    <span className="text-xs text-gray-500 dark:text-gray-500">Defina a data final do prazo.</span>
+
+                  )}
+
+                                    <button onClick={() => handleEditDate(process)} className="text-xs px-3 py-1.5 rounded bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300 dark:hover:bg-yellow-900/50">
+
+                    {dateValue ? 'Editar data' : 'Definir data'}
+
+                  </button>
+
+                  <button onClick={() => onProcessClick(process)} className="text-xs px-3 py-1.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50">Abrir processo</button>
+
+                </>
+
+              )}
+
+            </div>
+
+          </div>
+
+          <button onClick={() => onProcessClick(process)} className="text-gray-300 hover:text-blue-500">
+
+            <ChevronDown className="-rotate-90" />
+
+          </button>
+
+        </div>
+
+      </div>
+
+    );
+
+  };
 
 
 
@@ -740,7 +1101,13 @@ const AgendaView = ({ processes, onProcessClick }) => {
 
                 <h2 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center"><CalendarDays className="w-6 h-6 mr-2 text-blue-600" /> Agenda de Prazos</h2>
 
+              <div className="flex items-center gap-4">
                 <p className="text-sm text-gray-500">Visualizando {processosComPrazo.length} processos com alerta de prazo.</p>
+                <div className="hidden md:inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  <button onClick={() => setAgendaViewMode('blocks')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${agendaViewMode === 'blocks' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Blocos</button>
+                  <button onClick={() => setAgendaViewMode('grid')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${agendaViewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Grade</button>
+                </div>
+              </div>
 
             </div>
 
@@ -760,73 +1127,155 @@ const AgendaView = ({ processes, onProcessClick }) => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                    <div className="lg:col-span-2 space-y-4">
+                    <div className="lg:col-span-2 space-y-6">
 
-                        {processosComPrazo.map(process => (
+                  {grouped.vencidos?.length > 0 && (
 
-                            <div key={process.id} onClick={() => onProcessClick(process)} className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:border-blue-400 cursor-pointer transition-all group">
+                    <div className="space-y-3">
 
-                                <div className="flex justify-between items-start">
+                      <h3 className="text-sm font-bold uppercase text-red-600 dark:text-red-400">Vencidos</h3>
 
-                                    <div>
-
-                                        <div className="flex items-center gap-2 mb-1">
-
-                                            <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs font-mono px-2 py-0.5 rounded">{process.numero_cnj}</span>
-
-                                            {process.data_prazo_final ? (<span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded flex items-center"><Clock className="w-3 h-3 mr-1"/> Vence: {new Date(process.data_prazo_final).toLocaleDateString('pt-BR')}</span>) : (<span className="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-0.5 rounded flex items-center"><AlertTriangle className="w-3 h-3 mr-1"/> Definir Data</span>)}
-
-                                        </div>
-
-                                        <h3 className="font-semibold text-gray-800 dark:text-white">{process.cliente_nome}</h3>
-
-                                        <p className="text-sm text-gray-500 mt-1">{process.prazo_ia ? `IA Detectou: "${process.prazo_ia}"` : 'Prazo manual definido.'}</p>
-
-                                    </div>
-
-                                    <ChevronDown className="text-gray-300 group-hover:text-blue-500 -rotate-90" />
-
-                                </div>
-
-                            </div>
-
-                        ))}
+                      <div className={agendaViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'space-y-4'}>
+                        {grouped.vencidos.map(renderCard)}
+                      </div>
 
                     </div>
 
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 h-fit">
+                  )}
 
-                        <h3 className="text-sm font-bold uppercase text-gray-500 mb-4">Resumo do Mês</h3>
+                  {grouped.hoje?.length > 0 && (
 
-                        <div className="space-y-2">
+                    <div className="space-y-3">
 
-                            <div className="text-center p-4 bg-gray-50 dark:bg-gray-900 rounded-lg"><p className="text-xs text-gray-500">Use a lista ao lado para clicar nos processos e definir a data final exata no calendário.</p></div>
+                      <h3 className="text-sm font-bold uppercase text-amber-600 dark:text-amber-400">Vencem hoje</h3>
 
-                            <div className="mt-4">
+                      <div className={agendaViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'space-y-4'}>
+                        {grouped.hoje.map(renderCard)}
+                      </div>
 
-                                <p className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Próximos Vencimentos:</p>
+                    </div>
 
-                                {processosComPrazo.filter(p => p.data_prazo_final).slice(0, 5).map(p => (
+                  )}
 
-                                    <div key={p.id} className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                  {grouped.proximos?.length > 0 && (
 
-                                        <span className="text-gray-600 dark:text-gray-400 truncate w-32">{p.cliente_nome}</span>
+                    <div className="space-y-3">
 
-                                        <span className="text-red-600 font-medium">{new Date(p.data_prazo_final).toLocaleDateString('pt-BR')}</span>
+                      <h3 className="text-sm font-bold uppercase text-amber-600 dark:text-amber-400">Próximos 7 dias</h3>
 
-                                    </div>
+                      <div className={agendaViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'space-y-4'}>
+                        {grouped.proximos.map(renderCard)}
+                      </div>
 
-                                ))}
+                    </div>
 
-                                {processosComPrazo.filter(p => p.data_prazo_final).length === 0 && <p className="text-xs text-gray-400 italic">Nenhuma data confirmada ainda.</p>}
+                  )}
 
-                            </div>
+                  {grouped.futuros?.length > 0 && (
+
+                    <div className="space-y-3">
+
+                      <h3 className="text-sm font-bold uppercase text-green-600 dark:text-green-400">Futuros</h3>
+
+                      <div className={agendaViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'space-y-4'}>
+                        {grouped.futuros.map(renderCard)}
+                      </div>
+
+                    </div>
+
+                  )}
+
+                  {grouped['sem-data']?.length > 0 && (
+
+                    <div className="space-y-3">
+
+                      <h3 className="text-sm font-bold uppercase text-yellow-600 dark:text-yellow-400">Sem data</h3>
+
+                      <div className={agendaViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'space-y-4'}>
+                        {grouped['sem-data'].map(renderCard)}
+                      </div>
+
+                    </div>
+
+                  )}
+
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 h-fit space-y-4">
+
+                  <h3 className="text-sm font-bold uppercase text-gray-500">Resumo do Mês</h3>
+
+                  <div className="grid grid-cols-2 gap-3">
+
+                    <div className="p-3 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300 text-sm">
+
+                      <p className="text-xs uppercase">Vencidos</p>
+
+                      <p className="text-lg font-bold">{grouped.vencidos?.length || 0}</p>
+
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 text-sm">
+
+                      <p className="text-xs uppercase">Hoje</p>
+
+                      <p className="text-lg font-bold">{grouped.hoje?.length || 0}</p>
+
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300 text-sm">
+
+                      <p className="text-xs uppercase">Próximos 7d</p>
+
+                      <p className="text-lg font-bold">{grouped.proximos?.length || 0}</p>
+
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-gray-50 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-sm">
+
+                      <p className="text-xs uppercase">Sem data</p>
+
+                      <p className="text-lg font-bold">{grouped['sem-data']?.length || 0}</p>
+
+                    </div>
+
+                  </div>
+
+                  <div className="text-center p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+
+                    <p className="text-xs text-gray-500">Clique em “Definir data” para transformar o alerta da IA em prazo real.</p>
+
+                  </div>
+
+                  <div>
+
+                    <p className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Próximos vencimentos</p>
+
+                    {(grouped.proximos || [])
+
+                      .concat(grouped.futuros || [])
+
+                      .slice(0, 5)
+
+                      .map(({ process }) => (
+
+                        <div key={process.id} className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
+
+                          <span className="text-gray-600 dark:text-gray-400 truncate w-32">{process.cliente_nome}</span>
+
+                          <span className="text-gray-600 font-medium">{formatDateDisplay(process.data_prazo_final)}</span>
 
                         </div>
 
-                    </div>
+                      ))}
+
+                    {(!grouped.proximos?.length && !grouped.futuros?.length) && <p className="text-xs text-gray-400 italic">Nenhuma data confirmada ainda.</p>}
+
+                  </div>
 
                 </div>
+
+              </div>
 
             )}
 
@@ -854,39 +1303,39 @@ const StatsBar = ({ processes }) => {
 
   return (
 
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 animate-fade-in-up">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8 animate-fade-in-up">
 
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
+      <div className="bg-white/90 dark:bg-gray-800/90 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between backdrop-blur">
 
         <div><p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Importado</p><h3 className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{total}</h3></div>
 
-        <div className="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg text-gray-600 dark:text-gray-400"><FileText className="w-6 h-6" /></div>
+        <div className="bg-gray-100 dark:bg-gray-700 p-3 rounded-xl text-gray-600 dark:text-gray-300"><FileText className="w-6 h-6" /></div>
 
       </div>
 
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
+      <div className="bg-white/90 dark:bg-gray-800/90 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between backdrop-blur">
 
         <div><p className="text-xs font-bold text-yellow-600 dark:text-yellow-500 uppercase tracking-wider">Pendentes</p><h3 className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{pendentes}</h3></div>
 
-        <div className="bg-yellow-50 dark:bg-yellow-900/30 p-3 rounded-lg text-yellow-600 dark:text-yellow-400"><AlertCircle className="w-6 h-6" /></div>
+        <div className="bg-yellow-50 dark:bg-yellow-900/30 p-3 rounded-xl text-yellow-600 dark:text-yellow-400"><AlertCircle className="w-6 h-6" /></div>
 
       </div>
 
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
+      <div className="bg-white/90 dark:bg-gray-800/90 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between backdrop-blur">
 
         <div><p className="text-xs font-bold text-green-600 dark:text-green-500 uppercase tracking-wider">Concluídos</p><h3 className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{analisados}</h3></div>
 
-        <div className="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg text-green-600 dark:text-green-400"><CheckCircle2 className="w-6 h-6" /></div>
+        <div className="bg-green-50 dark:bg-green-900/30 p-3 rounded-xl text-green-600 dark:text-green-400"><CheckCircle2 className="w-6 h-6" /></div>
 
       </div>
 
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-blue-200 dark:border-blue-900 shadow-sm relative overflow-hidden">
+      <div className="bg-white/90 dark:bg-gray-800/90 p-5 rounded-2xl border border-blue-200 dark:border-blue-900 shadow-sm relative overflow-hidden backdrop-blur">
 
         <div className="flex justify-between items-end mb-2">
 
           <div><p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Progresso do Lote</p><h3 className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{progress}%</h3></div>
 
-          <div className="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-blue-600 dark:text-blue-400"><Activity className="w-6 h-6" /></div>
+          <div className="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-xl text-blue-600 dark:text-blue-400"><Activity className="w-6 h-6" /></div>
 
         </div>
 
@@ -904,11 +1353,11 @@ const StatsBar = ({ processes }) => {
 
 // --- 5. FILTER BAR (CORRIGIDA) ---
 
-const FilterBar = ({ filters, setFilters, uniqueUFs, uniqueDates, uniqueRisks, uniqueUploadDates, onExportExcel, onExportPDF }) => {
+const FilterBar = ({ filters, setFilters, uniqueUFs, uniqueDates, uniqueRisks, uniqueUploadDates, onExportExcel, onExportPDF, viewMode, setViewMode, userRole }) => {
 
     return (
 
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 flex flex-col gap-4 transition-colors">
+      <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 flex flex-col gap-4 transition-colors sticky top-[76px] z-20">
 
         <div className="flex flex-col xl:flex-row gap-3 items-center">
 
@@ -931,15 +1380,11 @@ const FilterBar = ({ filters, setFilters, uniqueUFs, uniqueDates, uniqueRisks, u
               <Filter className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
 
               <select className="w-full pl-10 pr-8 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 cursor-pointer truncate" value={filters.status} onChange={(e) => setFilters({...filters, status: e.target.value})}>
-
                   <option value="">Todos Status</option>
-
+                  {userRole === 'admin' && <option value="aguardando_aprovacao">🛡️ Aguardando Aprovação</option>}
                   <option value="pendente">🟡 Pendentes</option>
-
                   <option value="analisado">🟢 Analisados</option>
-
                   <option value="frustrada">🔴 Frustrados</option>
-
               </select>
 
               <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-gray-400 pointer-events-none" />
@@ -1030,11 +1475,21 @@ const FilterBar = ({ filters, setFilters, uniqueUFs, uniqueDates, uniqueRisks, u
 
   
 
-        <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
 
-          <button onClick={onExportExcel} className="flex items-center px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-md transition-colors dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/40"><FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" /> Exportar Excel</button>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Visualização</span>
+            <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <button onClick={() => setViewMode('tiles')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'tiles' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Grade</button>
+              <button onClick={() => setViewMode('table')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Tabela</button>
+              <button onClick={() => setViewMode('list')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Lista</button>
+            </div>
+          </div>
 
-          <button onClick={onExportPDF} className="flex items-center px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/40"><FileIcon className="w-3.5 h-3.5 mr-1.5" /> Exportar PDF</button>
+          <div className="flex gap-2">
+            <button onClick={onExportExcel} className="flex items-center px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-md transition-colors dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/40"><FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" /> Exportar Excel</button>
+            <button onClick={onExportPDF} className="flex items-center px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/40"><FileIcon className="w-3.5 h-3.5 mr-1.5" /> Exportar PDF</button>
+          </div>
 
         </div>
 
@@ -1104,7 +1559,7 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
 
 // --- 7. PROCESS CARD ---
 
-const ProcessCard = ({ process, onClick, hasDraft, isDraftLoading }) => {
+const ProcessCard = ({ process, onClick, hasDraft, isDraftLoading, onDelete, userRole }) => {
 
   const statusParaExibir = process.status_manual || process.status || 'pendente';
 
@@ -1116,11 +1571,15 @@ const ProcessCard = ({ process, onClick, hasDraft, isDraftLoading }) => {
 
   const updatesBadgeClass = "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100 text-xs px-2 py-0.5 rounded-full font-medium";
 
+  // Lógica de Status de Aprovação (Visual)
+  const isPendingApproval = process.status_aprovacao === 'pending';
 
 
   return (
 
-    <div onClick={onClick} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-500 transition-all cursor-pointer relative group">
+    <div onClick={onClick} className={`bg-white dark:bg-gray-800 border ${isPendingApproval ? 'border-amber-300 ring-1 ring-amber-300' : 'border-gray-200 dark:border-gray-700'} rounded-xl p-4 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-500 transition-all cursor-pointer relative group`}>
+
+      {isPendingApproval && <div className="absolute top-0 right-0 bg-amber-200 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-bl-lg rounded-tr-lg">EM ANÁLISE</div>}
 
       <div className="flex justify-between items-start mb-3">
 
@@ -1140,7 +1599,18 @@ const ProcessCard = ({ process, onClick, hasDraft, isDraftLoading }) => {
 
         </div>
 
-        <span className="text-xs text-gray-500 dark:text-gray-400">{dataFormatada}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 dark:text-gray-400">{dataFormatada}</span>
+          {userRole === 'admin' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete?.(process); }}
+              className="p-1.5 rounded-md text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              title="Excluir este processo"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
 
       </div>
 
@@ -1203,6 +1673,8 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
   const [chatInput, setChatInput] = useState('');
 
   const [isChatLoading, setIsChatLoading] = useState(false);
+
+  const [expandedMessages, setExpandedMessages] = useState({});
 
   const chatEndRef = useRef(null);
 
@@ -1270,6 +1742,8 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
     setIsChatLoading(false);
 
+    setExpandedMessages({});
+
   }, [process]);
 
 
@@ -1286,7 +1760,12 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
     try {
 
-      const { error } = await supabase.from('processos').update(editForm).eq('id', process.id);
+      const payload = {
+        ...editForm,
+        data_prazo_final: editForm.data_prazo_final ? editForm.data_prazo_final : null
+      };
+
+      const { error } = await supabase.from('processos').update(payload).eq('id', process.id);
 
       if (error) throw error;
 
@@ -1294,7 +1773,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
       setIsEditing(false);
 
-      onUpdateData(process.id, editForm);
+      onUpdateData(process.id, payload);
 
     } catch (error) {
 
@@ -1338,6 +1817,8 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
       if (processError) throw processError;
 
+      await logAction(user.id, 'UPDATE_STATUS', process.id, { old: process.status_manual, new: currentStatus });
+
       toast.success('Movimentação salva!');
 
       onUpdateStatus(process.id, currentStatus);
@@ -1366,13 +1847,37 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
     try {
 
+      // Compilar contexto do processo para enviar ao n8n
+      const processContext = {
+        question,
+        processo_id: process.id,
+        numero_cnj: process.numero_cnj,
+        cliente_nome: process.cliente_nome,
+        tribunal: process.tribunal,
+        estado_uf: process.estado_uf,
+        risco: process.risco || '',
+        analise_risco: process.analise_risco || '',
+        prazo_ia: process.prazo_ia || '',
+        data_prazo_final: process.data_prazo_final || '',
+        status_manual: process.status_manual || '',
+        texto_resumo: process.texto_resumo || '',
+        // Histórico das últimas 3 movimentações
+        historico_recente: taskHistory.slice(0, 3).map(t => ({
+          status: t.status_tarefa,
+          relato: t.relato,
+          data: t.created_at
+        })),
+        // Todas as outras movimentações importadas
+        outras_movimentacoes: process.history ? process.history.slice(1, 4).map(h => h.texto_resumo) : []
+      };
+
       const response = await fetch(API_CHAT_URL, {
 
         method: 'POST',
 
         headers: { 'Content-Type': 'application/json' },
 
-        body: JSON.stringify({ question, processo_id: process.id })
+        body: JSON.stringify(processContext)
 
       });
 
@@ -1404,6 +1909,10 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
     }
 
+  };
+
+  const toggleExpandedMessage = (index) => {
+    setExpandedMessages((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
 
@@ -1725,61 +2234,6 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
               </div>
 
             </div>
-
-
-
-            <div className="pt-2">
-
-                <button onClick={onGenerateDraft} disabled={draftState.loading} className={`w-full bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-800 hover:to-black text-white font-medium py-2.5 rounded-lg shadow-md flex items-center justify-center transition-all group ${draftState.loading ? 'opacity-70 cursor-not-allowed' : ''}`}>
-
-                    <FileSignature className="w-4 h-4 mr-2" />
-
-                    {draftState.loading ? 'Gerando Minuta (pode fechar a janela)...' : 'Gerar Minuta de Resposta (IA)'}
-
-                </button>
-
-                
-
-                {showAiPanel && (
-
-                    <div className="mt-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 animate-fade-in-up">
-
-                        <div className="flex justify-between items-center mb-2">
-
-                            <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase flex items-center"><Scale className="w-3 h-3 mr-1"/> Rascunho Jurídico</span>
-
-                            {displayText && (
-
-                                <div className="flex gap-2">
-
-                                    <button onClick={handleDownloadDocx} className="text-xs flex items-center px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 transition-colors font-medium" title="Baixar em Word"><FileIcon className="w-3 h-3 mr-1"/> Baixar .docx</button>
-
-                                    <button onClick={copyToClipboard} className="text-xs flex items-center px-2 py-1 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 transition-colors" title="Copiar para área de transferência"><Copy className="w-3 h-3 mr-1"/> Copiar</button>
-
-                                </div>
-
-                            )}
-
-                        </div>
-
-                        {draftState.loading ? (
-
-                            <div className="flex items-center justify-center py-6 text-gray-500"><Loader2 className="w-6 h-6 animate-spin mr-2"/> Redigindo peça processual...</div>
-
-                        ) : (
-
-                            <textarea readOnly value={displayText} className="w-full text-sm font-mono bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-lg p-3 text-gray-800 dark:text-gray-200 resize-none focus:ring-0 shadow-inner leading-relaxed" rows={8}/>
-
-                        )}
-
-                    </div>
-
-                )}
-
-            </div>
-
-
-
             <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
 
               <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-3 flex items-center"><Plus className="w-4 h-4 mr-1"/> Nova Movimentação Manual</h3>
@@ -1788,7 +2242,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
                 <textarea rows={2} value={relato} onChange={e => setRelato(e.target.value)} className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 dark:text-gray-200" placeholder="Relato do que aconteceu..." />
 
-                <div className="grid grid-cols-2 gap-3"><input type="text" value={sugestao} onChange={e => setSugestao(e.target.value)} className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 dark:text-gray-200" placeholder="Sugestão..." /><input type="text" value={acao} onChange={e => setAcao(e.target.value)} className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 dark:text-gray-200" placeholder="Ação tomada..." /></div>
+                <div className="grid grid-cols-2 gap-3"><input type="text" value={sugestao} onChange={e => setSugestao(e.target.value)} className="w-full bg-white dark:bg-gray-900 border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 dark:text-gray-200" placeholder="Sugestão..." /><input type="text" value={acao} onChange={e => setAcao(e.target.value)} className="w-full bg-white dark:bg-gray-900 border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 dark:text-gray-200" placeholder="Ação tomada..." /></div>
 
                 <div className="relative border border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-3 flex items-center justify-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-400 text-xs"><input type="file" accept="image/*,.pdf" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => setPrintFile(e.target.files[0])} /><UploadCloud className="w-4 h-4 mr-2" /> {printFile ? <span className="text-blue-500 font-medium">{printFile.name}</span> : "Anexar Comprovante"}</div>
 
@@ -1904,29 +2358,50 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
               {chatMessages.length === 0 && !isChatLoading && (
 
-                <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-10">
+                <div className="text-sm text-gray-500 dark:text-gray-400 text-center mt-10 space-y-4">
 
-                  <Bot className="w-8 h-8 mx-auto mb-2 text-gray-300"/>
+                  <Bot className="w-8 h-8 mx-auto text-gray-300"/>
 
-                  Envie uma pergunta para consultar o processo com base nos documentos.
+                  <p className="font-semibold">Assistente Jurídico do Processo</p>
 
-                </p>
+                  <p className="text-xs">Faça perguntas sobre este processo, como:</p>
 
-              )}
+                  <div className="flex flex-col gap-2 items-start text-left max-w-xs mx-auto">
 
-              {chatMessages.map((msg, idx) => (
+                    <button onClick={() => setChatInput('O que devo fazer agora neste processo?')} className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 px-3 py-1.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors">O que devo fazer agora?</button>
 
-                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <button onClick={() => setChatInput('Quando este processo vai vencer?')} className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 px-3 py-1.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors">Quando vai vencer?</button>
 
-                  <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700'}`}>
+                    <button onClick={() => setChatInput('Qual é o melhor argumento jurisprudencial para este caso?')} className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 px-3 py-1.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors">Qual jurisprudência usar?</button>
 
-                    {msg.content}
+                    <button onClick={() => setChatInput('Qual é o nível de risco deste processo?')} className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 px-3 py-1.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors">Qual o risco?</button>
 
                   </div>
 
                 </div>
 
-              ))}
+              )}
+
+              {chatMessages.map((msg, idx) => {
+                const isAssistant = msg.role !== 'user';
+                const content = msg.content || '';
+                const isLong = isAssistant && content.length > 450;
+                const isExpanded = !!expandedMessages[idx];
+                const displayContent = isLong && !isExpanded ? `${content.slice(0, 450)}...` : content;
+
+                return (
+                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700'}`}>
+                      <div className="whitespace-pre-wrap leading-relaxed">{displayContent}</div>
+                      {isLong && (
+                        <button onClick={() => toggleExpandedMessage(idx)} className="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-300 hover:underline">
+                          {isExpanded ? 'Ver menos' : 'Ver mais'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
 
               {isChatLoading && (
 
@@ -1969,6 +2444,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 function App() {
 
   const [session, setSession] = useState(null);
+  const [userRole, setUserRole] = useState('user'); // 'admin' ou 'user'
 
   const [selectedProcess, setSelectedProcess] = useState(null);
 
@@ -1983,14 +2459,57 @@ function App() {
   const [isSosOpen, setIsSosOpen] = useState(false);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false); // Estado para o modal de exclusão
+  const [isDeleteProcessOpen, setIsDeleteProcessOpen] = useState(false);
+  const [processToDelete, setProcessToDelete] = useState(null);
+  const [isDeletingProcess, setIsDeletingProcess] = useState(false);
 
   const [darkMode, setDarkMode] = useState(() => { const saved = localStorage.getItem('theme'); return saved === 'dark'; });
+
+  // Função para buscar o perfil do usuário e criar se não existir
+  const fetchUserProfile = useCallback(async (userId, userEmail) => {
+    try {
+      // Tenta buscar o perfil existente
+      let { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+      
+      if (error && error.code === 'PGRST116') {
+        // Perfil não existe, criar um novo com role padrão 'user'
+        const { data: newProfile, error: insertError } = await supabase
+          .from('profiles')
+          .insert({ id: userId, email: userEmail, role: 'user' })
+          .select('role')
+          .single();
+        
+        if (insertError) {
+          console.error('Erro ao criar perfil:', insertError);
+          setUserRole('user');
+          return;
+        }
+        profile = newProfile;
+      } else if (error) {
+        console.error('Erro ao buscar perfil:', error);
+        setUserRole('user');
+        return;
+      }
+      
+      setUserRole(profile?.role || 'user');
+      console.log('Role do usuário:', profile?.role);
+    } catch (err) {
+      console.error('Erro ao carregar perfil:', err);
+      setUserRole('user');
+    }
+  }, []);
 
   
 
   // Filtros
 
   const [filters, setFilters] = useState({ search: '', status: '', uf: '', date: '', risk: '', uploadDate: '' });
+
+  const [viewMode, setViewMode] = useState('tiles');
 
   
 
@@ -2003,14 +2522,18 @@ function App() {
 
 
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => { 
+      setSession(session); 
+      if(session?.user) fetchUserProfile(session.user.id, session.user.email);
+    });
 
-    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { 
+      setSession(session); 
+      if(session?.user) fetchUserProfile(session.user.id, session.user.email);
+    });
 
     return () => subscription.unsubscribe();
-
-  }, []);
+  }, [fetchUserProfile]);
 
 
 
@@ -2175,6 +2698,8 @@ function App() {
     const formData = new FormData();
 
     formData.append('file', file);
+    if (session?.user?.id) formData.append('user_id', session.user.id);
+    formData.append('role', userRole);
 
     fetch(API_UPLOAD_URL, { method: 'POST', body: formData })
 
@@ -2190,6 +2715,45 @@ function App() {
 
       .catch((error) => { console.error('Erro:', error); toast.error('Erro no envio.'); setIsBackgroundProcessing(false); });
 
+  };
+
+  const openDeleteProcess = (process) => {
+    setProcessToDelete(process);
+    setIsDeleteProcessOpen(true);
+  };
+
+  const executeDeleteProcess = async () => {
+    if (!processToDelete?.id) return;
+    setIsDeletingProcess(true);
+    try {
+      const processId = processToDelete.id;
+      const { error: errorTasks } = await supabase.from('tarefas').delete().eq('processo_id', processId);
+      if (errorTasks) throw errorTasks;
+
+      const { error: errorAndamentos } = await supabase.from('andamentos').delete().eq('processo_id', processId);
+      if (errorAndamentos) throw errorAndamentos;
+
+      const { error: errorProcess } = await supabase.from('processos').delete().eq('id', processId);
+      if (errorProcess) throw errorProcess;
+
+      await logAction(session?.user?.id, 'DELETE_PROCESS', processId, { cnj: processToDelete.numero_cnj });
+
+      setProcesses(prev => prev.filter(p => p.id !== processId));
+      setDrafts(prev => {
+        const next = { ...prev };
+        delete next[processId];
+        return next;
+      });
+      if (selectedProcess?.id === processId) setSelectedProcess(null);
+      toast.success('Processo excluído com sucesso!');
+      setIsDeleteProcessOpen(false);
+      setProcessToDelete(null);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao excluir processo: ' + error.message);
+    } finally {
+      setIsDeletingProcess(false);
+    }
   };
 
   // --- Funcao para limpar DB (CORRIGIDA) ---
@@ -2379,12 +2943,26 @@ function App() {
   const filteredProcesses = useMemo(() => {
 
     return processes.filter(p => {
+      // 1. Permissões de Visualização (Admin vs User)
+      const isOwner = session?.user?.id && (p.responsavel_id === session.user.id);
+      // Assumir aprovado se null (legado)
+      const isApproved = (p.status_aprovacao === 'approved') || (!p.status_aprovacao); 
+      
+      if (userRole !== 'admin') {
+          // Usuário vê apenas aprovados OU seus (mesmo pendentes)
+          if (!isApproved && !isOwner) return false;
+      }
 
       const searchMatch = p.cliente_nome?.toLowerCase().includes(filters.search.toLowerCase()) || p.numero_cnj?.includes(filters.search);
 
       const currentStatus = p.status_manual || p.status || 'pendente';
 
-      const statusMatch = filters.status ? currentStatus.toLowerCase() === filters.status : true;
+      let statusMatch = true;
+      if (filters.status === 'aguardando_aprovacao') {
+          statusMatch = p.status_aprovacao === 'pending';
+      } else if (filters.status) {
+          statusMatch = currentStatus.toLowerCase() === filters.status;
+      }
 
       const ufMatch = filters.uf ? p.estado_uf === filters.uf : true;
 
@@ -2426,15 +3004,16 @@ function App() {
 
     });
 
-  }, [processes, filters]);
+  }, [processes, filters, userRole, session]);
 
 
 
   // --- DEFINIÇÃO DO COMPONENTE UFGROUP (AGORA DENTRO DO ESCOPO CORRETO) ---
 
-  const UFGroup = ({ uf, processes, onProcessClick, drafts }) => {
+  const UFGroup = ({ uf, processes, onProcessClick, drafts, onDeleteProcess, viewMode, userRole }) => {
 
     const [isExpanded, setIsExpanded] = useState(true);
+    const gridClass = viewMode === 'list' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
 
     return (
 
@@ -2456,9 +3035,19 @@ function App() {
 
         <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[5000px]' : 'max-h-0'}`}>
 
-          <div className="p-6 pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className={`p-6 pt-0 grid ${gridClass} gap-4`}>
 
-            {processes.map((p) => (<ProcessCard key={p.numero_cnj} process={p} onClick={() => onProcessClick(p)} hasDraft={drafts[p.id]?.text} isDraftLoading={drafts[p.id]?.loading} />))}
+            {processes.map((p) => (
+              <ProcessCard
+                key={p.numero_cnj}
+                process={p}
+                onClick={() => onProcessClick(p)}
+                hasDraft={drafts[p.id]?.text}
+                isDraftLoading={drafts[p.id]?.loading}
+                onDelete={onDeleteProcess}
+                userRole={userRole}
+              />
+            ))}
 
           </div>
 
@@ -2642,14 +3231,18 @@ function App() {
 
         onClearDatabase={() => setIsDeleteModalOpen(true)}
 
+        userRole={userRole}
+
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
 
         {currentView === 'agenda' ? (
 
-            <AgendaView processes={processes} onProcessClick={(p) => setSelectedProcess(p)} />
+            <AgendaView processes={processes} onProcessClick={(p) => setSelectedProcess(p)} onUpdateData={handleUpdateProcessData} />
 
+        ) : currentView === 'admin' ? (
+            <AdminDashboard onBack={() => setCurrentView('dashboard')} />
         ) : (
 
             <>
@@ -2678,19 +3271,102 @@ function App() {
 
                   onExportPDF={exportToPDF} 
 
+                  viewMode={viewMode}
+
+                  setViewMode={setViewMode}
+
+                  userRole={userRole}
+
                 />
 
                 
 
-                <div className="mb-6 flex items-center justify-between"><p className="text-gray-600 dark:text-gray-400">Visualizando <strong>{filteredProcesses.length}</strong> processos encontrados.</p>{loading && <div className="flex items-center text-blue-600 dark:text-blue-400"><Loader2 className="w-5 h-5 animate-spin mr-2"/> Carregando dados...</div>}</div>
-
-                {!loading && filteredProcesses.length === 0 && (<div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700"><p className="text-gray-500 dark:text-gray-400">Nenhum processo encontrado com estes filtros.</p><button onClick={() => setFilters({search:'', status:'', uf:'', date:'', risk: '', uploadDate:''})} className="mt-4 text-blue-500 hover:underline">Limpar Filtros</button></div>)}
-
-                <div className="space-y-4">
-
-                  {Object.entries(processesByUF).sort(([ufA], [ufB]) => ufA.localeCompare(ufB)).map(([uf, items]) => (<UFGroup key={uf} uf={uf} processes={items} onProcessClick={setSelectedProcess} drafts={drafts} />))}
-
+                <div className="mb-6 flex items-center justify-between">
+                  <p className="text-gray-600 dark:text-gray-400">Visualizando <strong>{filteredProcesses.length}</strong> processos encontrados.</p>
+                  {loading && <div className="flex items-center text-blue-600 dark:text-blue-400"><Loader2 className="w-5 h-5 animate-spin mr-2"/> Carregando dados...</div>}
                 </div>
+
+                {!loading && filteredProcesses.length === 0 && (
+                  <div className="text-center py-16 bg-white/90 dark:bg-gray-800/90 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-300 mb-4">
+                      <Search className="w-6 h-6" />
+                    </div>
+                    <p className="text-gray-600 dark:text-gray-300 font-semibold">Nenhum processo encontrado</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Ajuste os filtros ou limpe para ver todos os resultados.</p>
+                    <button onClick={() => setFilters({search:'', status:'', uf:'', date:'', risk: '', uploadDate:''})} className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors">Limpar filtros</button>
+                  </div>
+                )}
+
+                {viewMode === 'table' ? (
+                  <div className="bg-white/90 dark:bg-gray-800/90 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-gray-50 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400">
+                          <tr>
+                            <th className="text-left px-4 py-3 font-semibold">CNJ</th>
+                            <th className="text-left px-4 py-3 font-semibold">Cliente</th>
+                            <th className="text-left px-4 py-3 font-semibold">Tribunal/UF</th>
+                            <th className="text-left px-4 py-3 font-semibold">Risco</th>
+                            <th className="text-left px-4 py-3 font-semibold">Status</th>
+                            <th className="text-left px-4 py-3 font-semibold">Data Andamento</th>
+                            <th className="text-right px-4 py-3 font-semibold">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                          {filteredProcesses.map((p) => {
+                            const statusValue = (p.status_manual || p.status || 'pendente').toLowerCase();
+                            const statusClass = statusValue === 'analisado'
+                              ? 'bg-green-100 text-green-700'
+                              : statusValue === 'frustrada'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-yellow-100 text-yellow-700';
+
+                            return (
+                              <tr key={p.numero_cnj} className="hover:bg-gray-50 dark:hover:bg-gray-900/50 cursor-pointer" onClick={() => setSelectedProcess(p)}>
+                                <td className="px-4 py-3 font-mono text-gray-700 dark:text-gray-200">{p.numero_cnj}</td>
+                                <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{p.cliente_nome || '-'}</td>
+                                <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{p.tribunal} - {p.estado_uf}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${getRiskColor(p.risco)}`}>{p.risco || '-'}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusClass}`}>{statusValue}</span>
+                                </td>
+                                <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{formatDateDisplay(p.data_andamento)}</td>
+                                <td className="px-4 py-3 text-right">
+                                  {userRole === 'admin' && (
+                                    <button onClick={(e) => { e.stopPropagation(); openDeleteProcess(p); }} className="text-red-500 hover:text-red-600" title="Excluir">
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+
+                    {Object.entries(processesByUF)
+                      .sort(([ufA], [ufB]) => ufA.localeCompare(ufB))
+                      .map(([uf, items]) => (
+                        <UFGroup
+                          key={uf}
+                          uf={uf}
+                          processes={items}
+                          onProcessClick={setSelectedProcess}
+                          drafts={drafts}
+                          onDeleteProcess={openDeleteProcess}
+                          viewMode={viewMode}
+                          userRole={userRole}
+                        />
+                      ))}
+
+                  </div>
+                )}
 
             </>
 
@@ -2715,6 +3391,19 @@ function App() {
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={session.user} onUserUpdated={(updatedUser) => setSession(prev => prev ? { ...prev, user: updatedUser } : prev)} />
 
       <SosModal isOpen={isSosOpen} onClose={() => setIsSosOpen(false)} user={session.user} />
+
+      <ConfirmModal 
+        isOpen={isDeleteProcessOpen} 
+        onClose={() => { setIsDeleteProcessOpen(false); setProcessToDelete(null); }} 
+        onConfirm={executeDeleteProcess} 
+        loading={isDeletingProcess}
+        title="Excluir este processo?" 
+        description={
+          processToDelete
+            ? `Esta ação removerá permanentemente o processo ${processToDelete.numero_cnj} e seus históricos do banco de dados. Tem certeza?`
+            : 'Esta ação removerá permanentemente este processo e seus históricos do banco de dados. Tem certeza?'
+        }
+      />
 
       <ConfirmModal 
 

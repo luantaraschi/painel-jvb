@@ -8,3 +8,18 @@ const supabaseKey = 'sb_publishable_uz4Mt6TnYYupDpTrLFXlNg_c7vEv5ZQ'
 
 // 3. A CORREÇÃO ESTÁ AQUI: Tem que ter "export const"
 export const supabase = createClient(supabaseUrl, supabaseKey)
+
+// Helper para Auditoria
+export const logAction = async (userId, action, targetId, details = {}) => {
+  if (!userId) return;
+  try {
+    await supabase.from('audit_logs').insert({
+      user_id: userId,
+      action,
+      target_id: targetId,
+      details
+    });
+  } catch (error) {
+    console.error("Erro ao salvar log:", error);
+  }
+};

@@ -1,16 +1,36 @@
-# React + Vite
+﻿#  Painel JVB - Gestão Jurídica Inteligente
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Bem-vindo ao **Painel JVB**, a plataforma centralizada de gestão processual desenvolvida para otimizar o fluxo de trabalho do escritório **JVB Advocacia**. Este sistema integra inteligência artificial para monitoramento de prazos, gestão de documentos e automação de tarefas repetitivas.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+##  Funcionalidades Principais
 
-## React Compiler
+###  **Agenda de Prazos Inteligente**
+- **Detecção Automática:** A IA analisa as publicações e infere prazos automaticamente.
+- **Visualização Flexível:** Alterne entre visualização em **Blocos** ou **Grade** para melhor organização.
+- **Status de Urgência:** Indicadores visuais claros para prazos vencidos, vincendos hoje ou nos próximos 7 dias.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+###  **Gestão de Processos**
+- **Acompanhamento Detalhado:** Visualize movimentações, valores e partes envolvidas.
+- **Busca Avançada:** Filtre processos por número CNJ, cliente ou status (Ativo/Arquivado/Suspenso).
+- **Semáforo de Risco:** Classificação visual de risco (Alto, Médio, Baixo).
 
-## Expanding the ESLint configuration
+###  **Assistente Jurídico (IA)**
+- **Chat com o Processo:** Tire dúvidas sobre o andamento processual conversando diretamente com a IA.
+- **Geração de Minutas:** Crie rascunhos de petições e documentos com um clique, utilizando dados reais do processo.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+###  **Gestão Documental**
+- **Upload Simplificado:** Envio de PDFs e documentos diretamente para a nuvem.
+- **Integração:** Conectado ao n8n para fluxos de automação de documentos.
+
+---
+
+##  Interface e Experiência
+- **Modo Escuro (Dark Mode):** Interface adaptada para uso noturno, reduzindo o cansaço visual.
+- **Design Responsivo:** Acesso total via desktop ou dispositivos móveis.
+- **Segurança:** Acesso restrito via autenticação segura.
+
+---
+
+> *Ferramenta de uso exclusivo interno. Desenvolvido para modernizar a advocacia.*
