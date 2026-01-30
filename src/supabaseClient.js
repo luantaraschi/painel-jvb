@@ -11,15 +11,22 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
 
 // Helper para Auditoria
 export const logAction = async (userId, action, targetId, details = {}) => {
-  if (!userId) return;
+  if (!userId) return null;
   try {
-    await supabase.from('audit_logs').insert({
-      user_id: userId,
-      action,
-      target_id: targetId,
-      details
-    });
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .insert({
+        user_id: userId,
+        action,
+        target_id: targetId,
+        details
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data || null;
   } catch (error) {
     console.error("Erro ao salvar log:", error);
+    return null;
   }
 };
