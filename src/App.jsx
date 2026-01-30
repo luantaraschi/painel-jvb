@@ -188,20 +188,33 @@ const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
     return current.join(', ');
   };
 
-  const parsePrazoIaDate = (prazoText) => {
+  const parsePrazoIaDate = (prazoText, baseDate) => {
     if (!prazoText) return '';
     const match = prazoText.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/);
-    if (!match) return '';
-    const day = match[1];
-    const month = match[2];
-    const yearRaw = match[3];
-    const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
-    return `${year}-${month}-${day}`;
+    if (match) {
+      const day = match[1];
+      const month = match[2];
+      const yearRaw = match[3];
+      const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+      return `${year}-${month}-${day}`;
+    }
+
+    const relativeMatch = prazoText.match(/(\d+)\s*dias?/i);
+    if (!relativeMatch) return '';
+    if (!baseDate) return '';
+
+    const normalizedBase = normalizeDate(baseDate);
+    const base = new Date(normalizedBase || baseDate);
+    if (Number.isNaN(base.getTime())) return '';
+    base.setHours(0, 0, 0, 0);
+    base.setDate(base.getDate() + Number(relativeMatch[1]));
+    return base.toISOString().split('T')[0];
   };
 
   const getEffectiveDate = (process) => {
     if (process?.data_prazo_final) return normalizeDate(process.data_prazo_final);
-    return parsePrazoIaDate(process?.prazo_ia);
+    const baseDate = process?.data_andamento || process?.created_at;
+    return parsePrazoIaDate(process?.prazo_ia, baseDate);
   };
 
   const getDaysToDue = (dateStr) => {

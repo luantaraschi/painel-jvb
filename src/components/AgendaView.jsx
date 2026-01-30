@@ -12,7 +12,8 @@ const AgendaView = ({ processes, onProcessClick, onUpdateData }) => {
 
   const getEffectiveDate = (process) => {
     if (process.data_prazo_final) return { date: normalizeDate(process.data_prazo_final), inferred: false };
-    const inferred = parsePrazoIaDate(process.prazo_ia);
+    const baseDate = process.data_andamento || process.created_at;
+    const inferred = parsePrazoIaDate(process.prazo_ia, baseDate);
     return inferred ? { date: inferred, inferred: true } : { date: '', inferred: false };
   };
 
