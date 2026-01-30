@@ -22,7 +22,7 @@ import {
 
   FileText, UploadCloud, Save, Loader2, X, Moon, Sun, Filter,
 
-  Search, ChevronDown, LifeBuoy,
+  Search, ChevronDown, ChevronUp, LifeBuoy, Ban, HelpCircle, MoreHorizontal,
 
   User as UserIcon, LogOut, FileIcon, Send, Activity,
 
@@ -33,6 +33,27 @@ import {
   LayoutDashboard, CalendarDays, AlertOctagon, TrendingUp
 
 } from 'lucide-react';
+
+// Small help tooltip icon for less intuitive features
+const HelpTip = ({ text }) => {
+  if (!text) return null;
+  return (
+    <span className="relative inline-flex items-center group">
+      <button
+        type="button"
+        aria-label="Ajuda"
+        className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/60 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        <HelpCircle className="w-4 h-4" />
+      </button>
+      <div className="pointer-events-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 w-72">
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-3 text-xs text-gray-700 dark:text-gray-200">
+          {text}
+        </div>
+      </div>
+    </span>
+  );
+};
 
 
 
@@ -45,6 +66,10 @@ const API_UPLOAD_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/upload-pdf
 const API_DRAFTER_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/minuta";
 
 const API_SOS_URL = "https://jvbadvocacia-n8n.cloudfy.live/webhook/sos";
+
+const API_PIPELINE_REPROCESS_URL = import.meta.env.VITE_PIPELINE_REPROCESS_URL || "https://jvbadvocacia-n8n.cloudfy.live/webhook/pipeline-reprocess";
+
+const API_PIPELINE_REVIEW_URL = import.meta.env.VITE_PIPELINE_REVIEW_URL || "https://jvbadvocacia-n8n.cloudfy.live/webhook/pipeline-review";
 
 const API_CHAT_URL = import.meta.env.VITE_CHAT_URL || "/api/chat-processo";
 
@@ -142,9 +167,40 @@ const LoginPage = () => {
 
 // --- 2. MODAL DE CONFIRMAÇÃO (NOVO E PROFISSIONAL) ---
 
-const ConfirmModal = ({ isOpen, onClose, onConfirm, title, description, loading }) => {
+const ConfirmModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  description,
+  loading,
+  confirmText = 'Confirmar',
+  cancelText = 'Cancelar',
+  variant = 'danger'
+}) => {
 
   if (!isOpen) return null;
+
+  const confirmBtnClass =
+    variant === 'success'
+      ? 'bg-green-600 hover:bg-green-700'
+      : variant === 'primary'
+        ? 'bg-blue-600 hover:bg-blue-700'
+        : 'bg-red-600 hover:bg-red-700';
+
+  const iconWrapClass =
+    variant === 'success'
+      ? 'bg-green-100 dark:bg-green-900/30'
+      : variant === 'primary'
+        ? 'bg-blue-100 dark:bg-blue-900/30'
+        : 'bg-red-100 dark:bg-red-900/30';
+
+  const iconClass =
+    variant === 'success'
+      ? 'text-green-600 dark:text-green-400'
+      : variant === 'primary'
+        ? 'text-blue-600 dark:text-blue-400'
+        : 'text-red-600 dark:text-red-400';
 
   return (
 
@@ -154,9 +210,9 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, description, loading 
 
         <div className="flex flex-col items-center text-center">
 
-          <div className="bg-red-100 dark:bg-red-900/30 p-4 rounded-full mb-4">
+          <div className={`${iconWrapClass} p-4 rounded-full mb-4`}>
 
-            <AlertOctagon className="w-8 h-8 text-red-600 dark:text-red-400" />
+            <AlertOctagon className={`w-8 h-8 ${iconClass}`} />
 
           </div>
 
@@ -176,7 +232,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, description, loading 
 
             >
 
-              Cancelar
+              {cancelText}
 
             </button>
 
@@ -186,11 +242,11 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, description, loading 
 
               disabled={loading}
 
-              className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center disabled:opacity-50"
+              className={`flex-1 px-4 py-2.5 ${confirmBtnClass} text-white rounded-lg font-medium transition-colors flex items-center justify-center disabled:opacity-50`}
 
             >
 
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sim, Apagar'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : confirmText}
 
             </button>
 
@@ -470,21 +526,37 @@ const SosModal = ({ isOpen, onClose, user }) => {
 
       }
 
-      await supabase.from('chamados_sos').insert({ 
+      const basePayload = { user_id: user.id, mensagem: message, tipo: type, contato: user.email, status: 'aberto' };
+      const payloadWithScreenshots = { ...basePayload, screenshots: screenshotUrls };
 
-        user_id: user.id, mensagem: message, tipo: type, contato: user.email, screenshots: screenshotUrls
+      let { error: sosInsertErr } = await supabase.from('chamados_sos').insert(payloadWithScreenshots);
 
-      });
+      // Se o Supabase ainda não reconheceu a coluna `screenshots` (schema cache) ou ela não existe,
+      // não bloquear o registro do chamado: tenta salvar sem screenshots.
+      if (sosInsertErr && /screenshots/i.test(sosInsertErr.message || '')) {
+        const retry = await supabase.from('chamados_sos').insert(basePayload);
+        sosInsertErr = retry.error;
+        if (!sosInsertErr) {
+          toast.warning('Chamado registrado, mas sem anexos no banco (coluna screenshots ausente).');
+        }
+      }
 
-      await fetch(API_SOS_URL, {
+      if (sosInsertErr) throw new Error(`Falha ao registrar no banco: ${sosInsertErr.message}`);
+
+      const webhookRes = await fetch(API_SOS_URL, {
 
         method: 'POST',
 
         headers: {'Content-Type': 'application/json'},
 
-        body: JSON.stringify({ user_email: user.email, mensagem: message, tipo: type, screenshots: screenshotUrls })
+        body: JSON.stringify({ user_email: user.email, mensagem: message, tipo: type, status: 'aberto', screenshots: screenshotUrls })
 
       });
+
+      if (!webhookRes.ok) {
+        const text = await webhookRes.text().catch(() => '');
+        throw new Error(text || `Falha ao chamar webhook SOS (HTTP ${webhookRes.status})`);
+      }
 
       toast.success("Solicitação enviada! Analisaremos em breve.");
 
@@ -594,103 +666,1168 @@ const SosModal = ({ isOpen, onClose, user }) => {
 
 // --- 2.9 ADMIN DASHBOARD ---
 const AdminDashboard = ({ onBack }) => {
-  const [stats, setStats] = useState({ totalUsers: 0, activeToday: 0, totalActions: 0 });
-  const [logs, setLogs] = useState([]);
-  const [ranking, setRanking] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ totalUsers: 0, activeToday: 0, totalActions: 0 });
+  const [kpis, setKpis] = useState({
+    prazos: { vencidos: 0, hoje: 0, seteDias: 0, semResponsavel: 0 },
+    risco: { alto: 0, medio: 0, semClassificacao: 0, semMovimentacao30: 0 },
+    pipeline: { processadosHoje: 0, falhasHoje: 0, emRevisao: 0, tempoMedio: 0 }
+  });
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [pipelineRuns, setPipelineRuns] = useState([]);
+  const [productivity, setProductivity] = useState({
+    openByUser: [],
+    overdueByUser: [],
+    completedWeek: 0,
+    avgCompletionHours: 0,
+    highRiskNoTask: []
+  });
+  const [profiles, setProfiles] = useState([]);
+  const [sosTickets, setSosTickets] = useState([]);
+  const [settings, setSettings] = useState({
+    alert_window_days: 7,
+    risk_high_terms: 'alto',
+    risk_medium_terms: 'médio,medio',
+    template_minuta: ''
+  });
+  const [selectedAudit, setSelectedAudit] = useState(null);
+  const [selectedRun, setSelectedRun] = useState(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [auditFilters, setAuditFilters] = useState({ user: 'all', action: 'all', resource: 'all', dateFrom: '', dateTo: '', search: '' });
+  const [pipelineActionLoading, setPipelineActionLoading] = useState({});
+  const [isRiskCollapsed, setIsRiskCollapsed] = useState(true);
+  const [isPipelineCollapsed, setIsPipelineCollapsed] = useState(true);
+  
+  // States for Ban Modal
+  const [banModalOpen, setBanModalOpen] = useState(false);
+  const [userToToggle, setUserToToggle] = useState(null);
+  const [isTogglingBan, setIsTogglingBan] = useState(false);
+
+  // SOS actions
+  const [sosActionLoading, setSosActionLoading] = useState({});
+  const [sosDeleteModalOpen, setSosDeleteModalOpen] = useState(false);
+  const [sosToDelete, setSosToDelete] = useState(null);
+  const [isDeletingSos, setIsDeletingSos] = useState(false);
+
+  // Office settings UX helpers
+  const [settingsAdvancedOpen, setSettingsAdvancedOpen] = useState(false);
+  const [settingsTestText, setSettingsTestText] = useState('');
+
+  const normalizeDate = (value) => (value && value.includes('T') ? value.split('T')[0] : value || '');
+
+  const normalizeText = (value) => {
+    try {
+      return (value || '')
+        .toString()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    } catch {
+      return (value || '').toString().toLowerCase();
+    }
+  };
+
+  const splitTerms = (value) => {
+    return (value || '')
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean)
+      .map(normalizeText);
+  };
+
+  const riskTestResult = useMemo(() => {
+    const text = normalizeText(settingsTestText);
+    if (!text) return null;
+    const high = splitTerms(settings.risk_high_terms);
+    const med = splitTerms(settings.risk_medium_terms);
+    const isHigh = high.some(term => term && text.includes(term));
+    const isMed = !isHigh && med.some(term => term && text.includes(term));
+    return isHigh ? 'alto' : isMed ? 'médio' : 'nenhum';
+  }, [settingsTestText, settings.risk_high_terms, settings.risk_medium_terms]);
+
+  const toggleTermInList = (currentCsv, term) => {
+    const current = (currentCsv || '')
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+    const normalized = current.map(normalizeText);
+    const termNorm = normalizeText(term);
+    const idx = normalized.indexOf(termNorm);
+    if (idx >= 0) {
+      current.splice(idx, 1);
+    } else {
+      current.push(term);
+    }
+    return current.join(', ');
+  };
+
+  const parsePrazoIaDate = (prazoText) => {
+    if (!prazoText) return '';
+    const match = prazoText.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/);
+    if (!match) return '';
+    const day = match[1];
+    const month = match[2];
+    const yearRaw = match[3];
+    const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+    return `${year}-${month}-${day}`;
+  };
+
+  const getEffectiveDate = (process) => {
+    if (process?.data_prazo_final) return normalizeDate(process.data_prazo_final);
+    return parsePrazoIaDate(process?.prazo_ia);
+  };
+
+  const getDaysToDue = (dateStr) => {
+    if (!dateStr) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(dateStr);
+    due.setHours(0, 0, 0, 0);
+    return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+  };
+
+  const getTaskDueDate = (task) => {
+    const raw = task?.data_limite || task?.prazo || task?.deadline || '';
+    return raw ? normalizeDate(raw) : '';
+  };
+
+  const isTaskCompleted = (task) => {
+    const status = (task?.status_tarefa || '').toLowerCase();
+    return ['analisado', 'concluido', 'concluída', 'concluida', 'finalizado', 'finalizada', 'done'].includes(status);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const { data: audit, error: auditErr } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
-        if (auditErr) throw auditErr;
-        const { data: profiles, error: profErr } = await supabase.from('profiles').select('*');
-        if (profErr) throw profErr;
+        const [auditRes, profilesRes, processosRes, tarefasRes, settingsRes] = await Promise.all([
+          supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
+          supabase.from('profiles').select('*'),
+          supabase.from('processos').select('*'),
+          supabase.from('tarefas').select('*'),
+          supabase.from('office_settings').select('*').order('updated_at', { ascending: false }).limit(1)
+        ]);
+
+        if (auditRes.error) toast.error(`Audit logs: ${auditRes.error.message}`);
+        if (profilesRes.error) toast.error(`Perfis: ${profilesRes.error.message}`);
+        if (processosRes.error) toast.error(`Processos: ${processosRes.error.message}`);
+        if (tarefasRes.error) toast.error(`Tarefas: ${tarefasRes.error.message}`);
+
+        const audit = auditRes.data || [];
+        const profilesData = profilesRes.data || [];
+        const processos = processosRes.data || [];
+        const tarefas = tarefasRes.data || [];
+
+        const settingsData = settingsRes?.data || [];
+        const effectiveSettings = settingsData[0] || {};
+        const alertWindowDays = Number(effectiveSettings.alert_window_days ?? settings.alert_window_days) || 7;
+
+        if (settingsData[0]) {
+          const nextSettings = {
+            alert_window_days: effectiveSettings.alert_window_days ?? 7,
+            risk_high_terms: effectiveSettings.risk_high_terms ?? 'alto',
+            risk_medium_terms: effectiveSettings.risk_medium_terms ?? 'médio,medio',
+            template_minuta: effectiveSettings.template_minuta ?? ''
+          };
+          setSettings(nextSettings);
+        }
 
         const userMap = {};
-        profiles.forEach(p => userMap[p.id] = p.user_metadata?.full_name || p.email || 'User');
+        profilesData.forEach(p => userMap[p.id] = p.user_metadata?.full_name || p.email || 'User');
 
         const counts = {};
         audit.forEach(l => {
-             const n = userMap[l.user_id] || 'Desc.';
-             counts[n] = (counts[n] || 0) + 1;
+          const n = userMap[l.user_id] || 'Desc.';
+          counts[n] = (counts[n] || 0) + 1;
         });
-        
-        const rank = Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count);
-        
+
         const today = new Date();
         const activeToday = new Set(audit.filter(l => {
-            const d = new Date(l.created_at);
-            return d.getDate() === today.getDate() && d.getMonth() === today.getMonth();
+          const d = new Date(l.created_at);
+          return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
         }).map(l => l.user_id)).size;
 
-        setStats({ totalUsers: profiles.length, activeToday, totalActions: audit.length });
-        setLogs(audit.map(l => ({ ...l, userName: userMap[l.user_id] })));
-        setRanking(rank);
-      } catch (e) { console.error(e); toast.error("Erro ao carregar dados admin"); } 
-      finally { setLoading(false); }
+        setStats({ totalUsers: profilesData.length, activeToday, totalActions: audit.length });
+        setAuditLogs(audit.map(l => ({ ...l, userName: userMap[l.user_id] })));
+        setProfiles(profilesData);
+
+        // KPIs - Prazos
+        const prazosCounts = { vencidos: 0, hoje: 0, seteDias: 0, semResponsavel: 0 };
+        processos.forEach(p => {
+          const date = getEffectiveDate(p);
+          const days = getDaysToDue(date);
+          if (days !== null) {
+            if (days < 0) prazosCounts.vencidos += 1;
+            if (days === 0) prazosCounts.hoje += 1;
+            if (days > 0 && days <= alertWindowDays) prazosCounts.seteDias += 1;
+          }
+          if (!p.responsavel_id) prazosCounts.semResponsavel += 1;
+        });
+
+        // KPIs - Risco
+        const riskCounts = { alto: 0, medio: 0, semClassificacao: 0, semMovimentacao30: 0 };
+        processos.forEach(p => {
+          const risk = (p.risco || '').toLowerCase();
+          if (!risk) riskCounts.semClassificacao += 1;
+          if (risk.includes('alto')) riskCounts.alto += 1;
+          if (risk.includes('médio') || risk.includes('medio')) riskCounts.medio += 1;
+          const lastMove = p.data_andamento || p.created_at;
+          if (lastMove) {
+            const diff = (today - new Date(lastMove)) / (1000 * 60 * 60 * 24);
+            if (diff >= 30) riskCounts.semMovimentacao30 += 1;
+          }
+        });
+
+        // Produtividade
+        const openByUser = {};
+        const overdueByUser = {};
+        const completedInWeek = [];
+        const completionDurations = [];
+        const tasksByProcess = {};
+
+        tarefas.forEach(t => {
+          const userName = userMap[t.user_id] || 'Desc.';
+          const dueDate = getTaskDueDate(t);
+          const isCompleted = isTaskCompleted(t);
+          if (!tasksByProcess[t.processo_id]) tasksByProcess[t.processo_id] = [];
+          tasksByProcess[t.processo_id].push(t);
+
+          if (!isCompleted && t.status_tarefa !== 'minuta') {
+            openByUser[userName] = (openByUser[userName] || 0) + 1;
+            if (dueDate && getDaysToDue(dueDate) < 0) {
+              overdueByUser[userName] = (overdueByUser[userName] || 0) + 1;
+            }
+          }
+
+          if (isCompleted && t.updated_at) {
+            const diffDays = (today - new Date(t.updated_at)) / (1000 * 60 * 60 * 24);
+            if (diffDays <= 7) completedInWeek.push(t);
+            if (t.created_at) {
+              const durationHours = (new Date(t.updated_at) - new Date(t.created_at)) / (1000 * 60 * 60);
+              if (durationHours > 0) completionDurations.push(durationHours);
+            }
+          }
+        });
+
+        const highRiskNoTask = processos.filter(p => {
+          const risk = (p.risco || '').toLowerCase();
+          if (!risk.includes('alto')) return false;
+          const tasks = tasksByProcess[p.id] || [];
+          return !tasks.some(t => !isTaskCompleted(t) && t.status_tarefa !== 'minuta');
+        });
+
+        const avgCompletionHours = completionDurations.length
+          ? (completionDurations.reduce((a, b) => a + b, 0) / completionDurations.length)
+          : 0;
+
+        setProductivity({
+          openByUser: Object.entries(openByUser).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+          overdueByUser: Object.entries(overdueByUser).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+          completedWeek: completedInWeek.length,
+          avgCompletionHours,
+          highRiskNoTask
+        });
+
+        setKpis(prev => ({ ...prev, prazos: prazosCounts, risco: riskCounts }));
+
+        // Pipeline runs
+        const { data: pipelineData, error: pipelineErr } = await supabase
+          .from('pipeline_runs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (!pipelineErr && pipelineData) {
+          setPipelineRuns(pipelineData);
+
+          const todayRuns = pipelineData.filter(r => {
+            const d = new Date(r.created_at);
+            return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+          });
+
+          const successes = todayRuns.filter(r => {
+            const status = (r.status || '').toLowerCase();
+            return status === 'success' || (!r.error_message && !r.erros);
+          }).length;
+          const failures = todayRuns.filter(r => {
+            const status = (r.status || '').toLowerCase();
+            return status === 'error' || status === 'failed' || r.error_message || r.erros;
+          }).length;
+          const emRevisao = pipelineData.filter(r => r.needs_review).length;
+          const durations = pipelineData.map(r => r.duration_ms || r.duration || 0).filter(Boolean);
+          const avgMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
+
+          setKpis(prev => ({
+            ...prev,
+            pipeline: {
+              processadosHoje: successes,
+              falhasHoje: failures,
+              emRevisao,
+              tempoMedio: avgMs
+            }
+          }));
+        } else {
+          setPipelineRuns([]);
+        }
+
+        // SOS tickets
+        const { data: sosData, error: sosErr } = await supabase
+          .from('chamados_sos')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(30);
+        if (sosErr) {
+          console.error('SOS tickets error:', sosErr);
+          toast.error(`SOS: ${sosErr.message}`);
+          setSosTickets([]);
+        } else {
+          setSosTickets(sosData || []);
+        }
+      } catch (e) {
+        console.error(e);
+        toast.error("Erro ao carregar dados admin");
+      } finally {
+        setLoading(false);
+      }
     };
     fetchData();
   }, []);
 
+  const auditUsers = useMemo(() => {
+    const users = [...new Set(auditLogs.map(l => l.userName).filter(Boolean))].sort();
+    return users;
+  }, [auditLogs]);
+
+  const auditActions = useMemo(() => {
+    const actions = [...new Set(auditLogs.map(l => l.action).filter(Boolean))].sort();
+    return actions;
+  }, [auditLogs]);
+
+  const auditResources = useMemo(() => {
+    const resources = [...new Set(auditLogs.map(l => l.resource || l.details?.resource).filter(Boolean))].sort();
+    return resources;
+  }, [auditLogs]);
+
+  const filteredAuditLogs = useMemo(() => {
+    return auditLogs.filter(l => {
+      const matchesUser = auditFilters.user === 'all' || l.userName === auditFilters.user;
+      const matchesAction = auditFilters.action === 'all' || l.action === auditFilters.action;
+      const resource = l.resource || l.details?.resource || '';
+      const matchesResource = auditFilters.resource === 'all' || resource === auditFilters.resource;
+      const createdAt = l.created_at ? normalizeDate(l.created_at) : '';
+      const matchesFrom = !auditFilters.dateFrom || (createdAt && createdAt >= auditFilters.dateFrom);
+      const matchesTo = !auditFilters.dateTo || (createdAt && createdAt <= auditFilters.dateTo);
+      const query = auditFilters.search.toLowerCase();
+      const matchesSearch = !query || `${l.target_id || ''} ${l.action || ''} ${resource} ${l.userName || ''}`.toLowerCase().includes(query);
+      return matchesUser && matchesAction && matchesResource && matchesFrom && matchesTo && matchesSearch;
+    });
+  }, [auditLogs, auditFilters]);
+
+  const handleExportAuditCsv = () => {
+    if (!filteredAuditLogs.length) return toast.warning('Nenhum log para exportar.');
+    const rows = filteredAuditLogs.map(l => ({
+      Data: l.created_at ? new Date(l.created_at).toLocaleString() : '-',
+      Usuario: l.userName || '-',
+      Acao: l.action || '-',
+      Recurso: l.resource || l.details?.resource || '-',
+      Ref: l.target_id || l.ref || '-',
+      CNJ: l.cnj || l.details?.cnj || '-'
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'AuditLog');
+    XLSX.writeFile(workbook, 'audit-log.csv');
+  };
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const payload = {
+        id: 1,
+        alert_window_days: Number(settings.alert_window_days) || 7,
+        risk_high_terms: settings.risk_high_terms || 'alto',
+        risk_medium_terms: settings.risk_medium_terms || 'médio,medio',
+        template_minuta: settings.template_minuta || ''
+      };
+      const { error } = await supabase.from('office_settings').upsert(payload, { onConflict: 'id' });
+      if (error) throw error;
+
+      try {
+        localStorage.setItem('office_settings_cache', JSON.stringify(payload));
+        window.dispatchEvent(new CustomEvent('office_settings_updated', { detail: payload }));
+      } catch {}
+
+      toast.success('Configurações salvas.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao salvar configurações.');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleUpdateRole = async (userId, role) => {
+    try {
+      const { error } = await supabase.from('profiles').update({ role }).eq('id', userId);
+      if (error) throw error;
+      setProfiles(prev => prev.map(p => p.id === userId ? { ...p, role } : p));
+      toast.success('Permissão atualizada.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao atualizar permissão.');
+    }
+  };
+
+  const handleToggleBanClick = (profile) => {
+    setUserToToggle(profile);
+    setBanModalOpen(true);
+  };
+
+  const executeToggleBan = async () => {
+    if (!userToToggle) return;
+    setIsTogglingBan(true);
+    const currentStatus = userToToggle.status;
+    const newStatus = currentStatus === 'banned' ? 'active' : 'banned';
+    
+    try {
+      const { data, error } = await supabase.from('profiles').update({ status: newStatus }).eq('id', userToToggle.id).select();
+      
+      if (error) throw error;
+      
+      // Check if any row was actually updated
+      if (!data || data.length === 0) {
+        throw new Error("Não foi possível atualizar o usuário. Verifique se você tem permissão de Admin.");
+      }
+
+      setProfiles(prev => prev.map(p => p.id === userToToggle.id ? { ...p, status: newStatus } : p));
+      toast.success(`Usuário ${newStatus === 'banned' ? 'banido' : 'ativado'} com sucesso.`);
+      setBanModalOpen(false);
+      setUserToToggle(null);
+    } catch (error) {
+      console.error('Erro detalhado:', error);
+      toast.error(error.message || 'Erro ao atualizar status.');
+    } finally {
+      setIsTogglingBan(false);
+    }
+  };
+
+  const updateSosTicketStatus = async (ticket, newStatus) => {
+    const ticketId = ticket?.id;
+    if (!ticketId) return;
+    setSosActionLoading(prev => ({ ...prev, [ticketId]: `status:${newStatus}` }));
+    try {
+      const { error } = await supabase
+        .from('chamados_sos')
+        .update({ status: newStatus })
+        .eq('id', ticketId);
+      if (error) throw error;
+      setSosTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: newStatus } : t));
+      toast.success(newStatus === 'concluido' ? 'Chamado concluído.' : 'Chamado reaberto.');
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Erro ao atualizar chamado.');
+    } finally {
+      setSosActionLoading(prev => ({ ...prev, [ticketId]: null }));
+    }
+  };
+
+  const openDeleteSos = (ticket) => {
+    setSosToDelete(ticket);
+    setSosDeleteModalOpen(true);
+  };
+
+  const executeDeleteSos = async () => {
+    if (!sosToDelete?.id) return;
+    const ticketId = sosToDelete.id;
+    setIsDeletingSos(true);
+    setSosActionLoading(prev => ({ ...prev, [ticketId]: 'delete' }));
+    try {
+      const { error } = await supabase
+        .from('chamados_sos')
+        .delete()
+        .eq('id', ticketId);
+      if (error) throw error;
+      setSosTickets(prev => prev.filter(t => t.id !== ticketId));
+      toast.success('Chamado excluído.');
+      setSosDeleteModalOpen(false);
+      setSosToDelete(null);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Erro ao excluir chamado.');
+    } finally {
+      setIsDeletingSos(false);
+      setSosActionLoading(prev => ({ ...prev, [ticketId]: null }));
+    }
+  };
+
+  const runPipelineAction = async (run, action) => {
+    const runId = run?.id;
+    if (!runId) return toast.error('Processamento inválido.');
+    const isReview = action === 'review';
+    const url = isReview ? API_PIPELINE_REVIEW_URL : API_PIPELINE_REPROCESS_URL;
+
+    setPipelineActionLoading(prev => ({ ...prev, [runId]: action }));
+    try {
+      const payload = isReview
+        ? { run_id: runId }
+        : { run_id: runId, identifier: run.identifier, file_name: run.file_name, payload: run.payload };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Falha ao chamar webhook.');
+      }
+
+      if (isReview) {
+        setPipelineRuns(prev => prev.map(r => r.id === runId ? { ...r, needs_review: true } : r));
+      }
+
+      toast.success(isReview ? 'Item marcado para revisão.' : 'Reprocessamento enviado.');
+    } catch (error) {
+      console.error(error);
+      toast.error(isReview ? 'Erro ao marcar revisão.' : 'Erro ao reprocessar.');
+    } finally {
+      setPipelineActionLoading(prev => ({ ...prev, [runId]: null }));
+    }
+  };
+
+  const visiblePipelineRuns = useMemo(() => {
+    if (!pipelineRuns?.length) return [];
+    return isPipelineCollapsed ? pipelineRuns.slice(0, 4) : pipelineRuns;
+  }, [pipelineRuns, isPipelineCollapsed]);
+
+  const visibleHighRiskNoTask = useMemo(() => {
+    if (!productivity.highRiskNoTask?.length) return [];
+    return isRiskCollapsed ? productivity.highRiskNoTask.slice(0, 4) : productivity.highRiskNoTask;
+  }, [productivity.highRiskNoTask, isRiskCollapsed]);
+
   return (
-    <div className="animate-fade-in space-y-6">
-       <div className="flex items-center space-x-2 mb-6">
+    <div className="animate-fade-in space-y-8">
+      <div className="flex items-center space-x-2">
         <button onClick={onBack} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><LayoutDashboard className="w-5 h-5 text-gray-500" /></button>
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center"><Activity className="w-6 h-6 mr-2 text-blue-600" /> Painel Administrativo</h2>
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center"><Activity className="w-6 h-6 mr-2 text-blue-600" /> Centro de Operações</h2>
+        {loading && <Loader2 className="w-5 h-5 animate-spin text-gray-400" />}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
-            <div><p className="text-sm text-gray-500">Usuários Totais</p><h3 className="text-3xl font-bold text-gray-800 dark:text-white">{stats.totalUsers}</h3></div>
-            <UserIcon className="w-8 h-8 text-blue-200" />
-         </div>
-         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
-            <div><p className="text-sm text-gray-500">Ativos Hoje</p><h3 className="text-3xl font-bold text-green-600">{stats.activeToday}</h3></div>
-            <Activity className="w-8 h-8 text-green-200" />
-         </div>
-         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between">
-            <div><p className="text-sm text-gray-500">Ações (Log)</p><h3 className="text-3xl font-bold text-purple-600">{stats.totalActions}</h3></div>
-            <FileSignature className="w-8 h-8 text-purple-200" />
-         </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Prazos</p>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800">
+              <p className="text-xs text-red-600">Vencidos</p>
+              <p className="text-2xl font-bold text-red-700">{kpis.prazos.vencidos}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800">
+              <p className="text-xs text-amber-600">Vence hoje</p>
+              <p className="text-2xl font-bold text-amber-700">{kpis.prazos.hoje}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
+              <p className="text-xs text-blue-600">Vence em {Number(settings.alert_window_days) || 7} dias</p>
+              <p className="text-2xl font-bold text-blue-700">{kpis.prazos.seteDias}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/20 border border-gray-100 dark:border-gray-700">
+              <p className="text-xs text-gray-500">Sem responsável</p>
+              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">{kpis.prazos.semResponsavel}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Risco</p>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800">
+              <p className="text-xs text-red-600">Risco alto</p>
+              <p className="text-2xl font-bold text-red-700">{kpis.risco.alto}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800">
+              <p className="text-xs text-amber-600">Risco médio</p>
+              <p className="text-2xl font-bold text-amber-700">{kpis.risco.medio}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/20 border border-gray-100 dark:border-gray-700">
+              <p className="text-xs text-gray-500">Sem classificação</p>
+              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">{kpis.risco.semClassificacao}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800">
+              <p className="text-xs text-purple-600">Sem movimentação 30d</p>
+              <p className="text-2xl font-bold text-purple-700">{kpis.risco.semMovimentacao30}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ingestão/Pipeline</p>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800">
+              <p className="text-xs text-green-600">PDFs processados hoje</p>
+              <p className="text-2xl font-bold text-green-700">{kpis.pipeline.processadosHoje}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800">
+              <p className="text-xs text-red-600">Falhas hoje</p>
+              <p className="text-2xl font-bold text-red-700">{kpis.pipeline.falhasHoje}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800">
+              <p className="text-xs text-amber-600">Itens em revisão</p>
+              <p className="text-2xl font-bold text-amber-700">{kpis.pipeline.emRevisao}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
+              <p className="text-xs text-blue-600">Tempo médio</p>
+              <p className="text-2xl font-bold text-blue-700">{kpis.pipeline.tempoMedio ? `${Math.round(kpis.pipeline.tempoMedio / 1000)}s` : '0s'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="font-bold text-gray-800 dark:text-white flex items-center">
+            <UploadCloud className="w-5 h-5 mr-2 text-blue-500" />
+            Pipeline - Últimos Processamentos
+            <HelpTip text="Mostra os últimos PDFs ingeridos pelo workflow (n8n). Use Reprocessar para reenviar o mesmo payload e Revisão para marcar itens que precisam de checagem manual." />
+          </h3>
+          {pipelineRuns.length > 4 && (
+            <button
+              type="button"
+              onClick={() => setIsPipelineCollapsed(v => !v)}
+              className="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-2"
+              title={isPipelineCollapsed ? 'Expandir lista' : 'Recolher lista'}
+            >
+              {isPipelineCollapsed ? 'Ver mais' : 'Ver menos'}
+              {isPipelineCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50 dark:bg-gray-900">
+              <tr>
+                <th className="p-3">Data</th>
+                <th className="p-3">Arquivo/ID</th>
+                <th className="p-3">Processos</th>
+                <th className="p-3">Andamentos</th>
+                <th className="p-3">Duplicados</th>
+                <th className="p-3">Erros</th>
+                <th className="p-3">Duração</th>
+                <th className="p-3">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {pipelineRuns.length === 0 && (
+                <tr><td colSpan="8" className="p-6 text-center text-gray-500">Nenhum processamento encontrado.</td></tr>
+              )}
+              {visiblePipelineRuns.map(run => (
+                <tr key={run.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                  <td className="p-3 text-gray-500 whitespace-nowrap">{run.created_at ? new Date(run.created_at).toLocaleString() : '-'}</td>
+                  <td className="p-3 text-gray-700 dark:text-gray-200 truncate max-w-[180px]">{run.file_name || run.identifier || run.id}</td>
+                  <td className="p-3">{run.processos_detectados ?? '-'}</td>
+                  <td className="p-3">{run.andamentos_inseridos ?? '-'}</td>
+                  <td className="p-3">{run.duplicados_evitados ?? '-'}</td>
+                  <td className="p-3">{run.error_message || run.erros || '-'}</td>
+                  <td className="p-3">{run.duration_ms ? `${Math.round(run.duration_ms / 1000)}s` : '-'}</td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => runPipelineAction(run, 'reprocess')}
+                        disabled={pipelineActionLoading[run.id] === 'reprocess'}
+                        className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                      >
+                        {pipelineActionLoading[run.id] === 'reprocess' ? 'Enviando...' : 'Reprocessar'}
+                      </button>
+                      <button
+                        onClick={() => runPipelineAction(run, 'review')}
+                        disabled={pipelineActionLoading[run.id] === 'review'}
+                        className="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                      >
+                        {pipelineActionLoading[run.id] === 'review' ? 'Marcando...' : 'Revisão'}
+                      </button>
+                      <button onClick={() => setSelectedRun(run)} className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">Ver payload</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {pipelineRuns.length > 4 && isPipelineCollapsed && (
+          <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setIsPipelineCollapsed(false)}
+              className="text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white flex items-center gap-2"
+              title="Mostrar mais processamentos"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+              Mostrar mais ({pipelineRuns.length - 4})
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-gray-800 dark:text-white flex items-center">
+              <FileSignature className="w-5 h-5 mr-2 text-purple-500" />
+              Audit Log
+              <HelpTip text="Registro de ações dos usuários (quem fez o quê e quando). Use os filtros para encontrar eventos específicos e exporte CSV quando precisar auditar." />
+            </h3>
+            <button onClick={handleExportAuditCsv} className="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-2"><FileSpreadsheet className="w-4 h-4" /> Exportar CSV</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+            <select value={auditFilters.user} onChange={(e) => setAuditFilters(prev => ({ ...prev, user: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm">
+              <option value="all">Usuário</option>
+              {auditUsers.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+            <select value={auditFilters.action} onChange={(e) => setAuditFilters(prev => ({ ...prev, action: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm">
+              <option value="all">Ação</option>
+              {auditActions.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <select value={auditFilters.resource} onChange={(e) => setAuditFilters(prev => ({ ...prev, resource: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm">
+              <option value="all">Recurso</option>
+              {auditResources.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <input type="date" value={auditFilters.dateFrom} onChange={(e) => setAuditFilters(prev => ({ ...prev, dateFrom: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+            <input type="date" value={auditFilters.dateTo} onChange={(e) => setAuditFilters(prev => ({ ...prev, dateTo: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+            <input type="text" value={auditFilters.search} onChange={(e) => setAuditFilters(prev => ({ ...prev, search: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="Busca rápida" />
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-[420px]">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+              <tr>
+                <th className="p-3">Data</th>
+                <th className="p-3">Usuário</th>
+                <th className="p-3">Ação</th>
+                <th className="p-3">Recurso</th>
+                <th className="p-3">Ref/CNJ</th>
+                <th className="p-3">Detalhes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {filteredAuditLogs.length === 0 && (
+                <tr><td colSpan="6" className="p-6 text-center text-gray-500">Nenhum log encontrado.</td></tr>
+              )}
+              {filteredAuditLogs.map(l => (
+                <tr key={l.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="p-3 text-gray-500 whitespace-nowrap">{l.created_at ? new Date(l.created_at).toLocaleString() : '-'}</td>
+                  <td className="p-3 font-medium text-gray-800 dark:text-gray-200">{l.userName}</td>
+                  <td className="p-3"><span className="px-2 py-1 bg-gray-100 rounded text-xs">{l.action || '-'}</span></td>
+                  <td className="p-3 text-gray-500">{l.resource || l.details?.resource || '-'}</td>
+                  <td className="p-3 text-gray-400 text-xs truncate max-w-[140px]">{l.target_id || l.cnj || l.ref || l.details?.cnj || '-'}</td>
+                  <td className="p-3"><button onClick={() => setSelectedAudit(l)} className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">Ver</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-            <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-yellow-500"/> Produtividade</h3>
-            <div className="space-y-4">
-                {ranking.map((u, i) => (
-                    <div key={i} className="flex items-center">
-                        <span className="font-bold mr-3 w-6">{i+1}</span>
-                        <div className="flex-1">
-                            <div className="flex justify-between text-sm mb-1"><span className="text-gray-700 dark:text-gray-300">{u.name}</span><span className="text-gray-500">{u.count}</span></div>
-                            <div className="w-full bg-gray-100 h-1.5 rounded-full"><div className="bg-blue-600 h-1.5 rounded-full" style={{width: `${(u.count/ranking[0].count)*100}%`}}></div></div>
-                        </div>
-                    </div>
-                ))}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-yellow-500" /> Produtividade</h3>
+          <div className="space-y-3">
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40">
+              <p className="text-xs text-gray-500">Concluídas na semana</p>
+              <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{productivity.completedWeek}</p>
             </div>
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40">
+              <p className="text-xs text-gray-500">Tempo médio de conclusão</p>
+              <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{productivity.avgCompletionHours ? `${Math.round(productivity.avgCompletionHours)}h` : '—'}</p>
+            </div>
+          </div>
         </div>
 
-        <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 dark:border-gray-700"><h3 className="font-bold text-gray-800 dark:text-white">Audit Log</h3></div>
-            <div className="overflow-x-auto max-h-[400px]">
-                <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0"><tr><th className="p-3">Data</th><th className="p-3">Usuário</th><th className="p-3">Ação</th><th className="p-3">Ref</th></tr></thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                        {logs.map(l => (
-                            <tr key={l.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                <td className="p-3 text-gray-500 whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</td>
-                                <td className="p-3 font-medium text-gray-800 dark:text-gray-200">{l.userName}</td>
-                                <td className="p-3"><span className="px-2 py-1 bg-gray-100 rounded text-xs">{l.action}</span></td>
-                                <td className="p-3 text-gray-400 text-xs truncate max-w-[100px]">{l.target_id || '-'}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4">Tarefas abertas por usuário</h3>
+          <div className="space-y-3">
+            {productivity.openByUser.length === 0 && <p className="text-sm text-gray-500">Sem tarefas abertas.</p>}
+            {productivity.openByUser.map((u, i) => (
+              <div key={i} className="flex items-center justify-between text-sm">
+                <span className="text-gray-700 dark:text-gray-300">{u.name}</span>
+                <span className="font-semibold text-gray-800 dark:text-gray-100">{u.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4">Tarefas vencidas por usuário</h3>
+          <div className="space-y-3">
+            {productivity.overdueByUser.length === 0 && <p className="text-sm text-gray-500">Nenhum atraso identificado.</p>}
+            {productivity.overdueByUser.map((u, i) => (
+              <div key={i} className="flex items-center justify-between text-sm">
+                <span className="text-gray-700 dark:text-gray-300">{u.name}</span>
+                <span className="font-semibold text-red-600">{u.count}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <div 
+          className="flex items-center justify-between cursor-pointer mb-4" 
+          onClick={() => setIsRiskCollapsed(!isRiskCollapsed)}
+        >
+          <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+            Processos com risco alto sem tarefa aberta
+            {productivity.highRiskNoTask.length > 0 && <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">{productivity.highRiskNoTask.length}</span>}
+          </h3>
+          {isRiskCollapsed ? <ChevronDown className="w-5 h-5 text-gray-500" /> : <ChevronUp className="w-5 h-5 text-gray-500" />}
+        </div>
+
+        {productivity.highRiskNoTask.length === 0 ? (
+          <p className="text-sm text-gray-500">Nenhum processo crítico sem ação.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-fade-in">
+              {visibleHighRiskNoTask.map(p => (
+                <div key={p.id} className="p-3 rounded-lg border border-red-100 bg-red-50 dark:bg-red-900/20 dark:border-red-800">
+                  <p className="text-sm font-semibold text-red-700">{p.numero_cnj || p.id}</p>
+                  <p className="text-xs text-red-600">Sem tarefa aberta</p>
+                </div>
+              ))}
+            </div>
+
+            {productivity.highRiskNoTask.length > 4 && isRiskCollapsed && (
+              <div className="mt-3 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => setIsRiskCollapsed(false)}
+                  className="text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white flex items-center gap-2"
+                  title="Mostrar todos os processos"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                  Mostrar mais ({productivity.highRiskNoTask.length - 4})
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center">
+            <Settings className="w-5 h-5 mr-2 text-blue-500" />
+            Configurações do Escritório
+            <HelpTip text="Essas configurações definem como o painel interpreta prazos e classifica risco (alto/médio). Use os presets e o ‘Testar termos’ para validar antes de salvar." />
+          </h3>
+
+          <div className="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
+            <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">Recomendações rápidas</p>
+            <p className="text-xs text-blue-700/80 dark:text-blue-200/80">Clique para aplicar um perfil de configuração comum.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => setSettings(prev => ({ ...prev, alert_window_days: 3 }))} className="text-xs px-3 py-1.5 rounded bg-white/70 hover:bg-white text-blue-700 border border-blue-200">Urgente (3 dias)</button>
+              <button type="button" onClick={() => setSettings(prev => ({ ...prev, alert_window_days: 7 }))} className="text-xs px-3 py-1.5 rounded bg-white/70 hover:bg-white text-blue-700 border border-blue-200">Padrão (7 dias)</button>
+              <button type="button" onClick={() => setSettings(prev => ({ ...prev, alert_window_days: 14 }))} className="text-xs px-3 py-1.5 rounded bg-white/70 hover:bg-white text-blue-700 border border-blue-200">Conservador (14 dias)</button>
+              <button
+                type="button"
+                onClick={() => setSettings(prev => ({
+                  ...prev,
+                  alert_window_days: 7,
+                  risk_high_terms: 'liminar, urgente, tutela, bloqueio, penhora, intimação, prazo fatal',
+                  risk_medium_terms: 'audiência, citação, contestação, recurso, embargo, pericia'
+                }))}
+                className="text-xs px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Aplicar termos sugeridos
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Janela de Alerta</label>
+              <input type="number" value={settings.alert_window_days} onChange={(e) => setSettings(prev => ({ ...prev, alert_window_days: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+              <p className="text-xs text-gray-400 mt-1">Dias de antecedência para avisos de prazo.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Termos de Risco Alto</label>
+              <input type="text" value={settings.risk_high_terms} onChange={(e) => setSettings(prev => ({ ...prev, risk_high_terms: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+              <p className="text-xs text-gray-400 mt-1">Palavras separadas por vírgula (ex: liminar, urgente).</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {['liminar', 'tutela', 'urgente', 'bloqueio', 'penhora', 'intimação'].map(term => (
+                  <button
+                    key={term}
+                    type="button"
+                    onClick={() => setSettings(prev => ({ ...prev, risk_high_terms: toggleTermInList(prev.risk_high_terms, term) }))}
+                    className="text-[11px] px-2 py-1 rounded-full bg-red-50 text-red-700 border border-red-100 hover:bg-red-100"
+                    title="Clique para adicionar/remover"
+                  >
+                    + {term}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Termos de Risco Médio</label>
+              <input type="text" value={settings.risk_medium_terms} onChange={(e) => setSettings(prev => ({ ...prev, risk_medium_terms: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+              <p className="text-xs text-gray-400 mt-1">Palavras separadas por vírgula.</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {['audiência', 'citação', 'contestação', 'recurso', 'embargo', 'perícia'].map(term => (
+                  <button
+                    key={term}
+                    type="button"
+                    onClick={() => setSettings(prev => ({ ...prev, risk_medium_terms: toggleTermInList(prev.risk_medium_terms, term) }))}
+                    className="text-[11px] px-2 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-100 hover:bg-amber-100"
+                    title="Clique para adicionar/remover"
+                  >
+                    + {term}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Template de Minuta</label>
+                <button
+                  type="button"
+                  onClick={() => setSettings(prev => ({
+                    ...prev,
+                    template_minuta: prev.template_minuta ||
+`Você é um(a) advogado(a) experiente. Redija uma minuta objetiva e bem estruturada com base no RESUMO abaixo.
+
+Regras:
+- Use linguagem formal.
+- Estruture em: (1) Síntese; (2) Fatos; (3) Fundamentos; (4) Pedidos.
+- Se faltar informação, faça suposições mínimas e indique o que falta.
+
+RESUMO:
+{{texto_resumo}}`
+                  }))}
+                  className="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
+                  title="Preenche com um modelo pronto"
+                >
+                  Inserir modelo básico
+                </button>
+              </div>
+
+              <textarea value={settings.template_minuta} onChange={(e) => setSettings(prev => ({ ...prev, template_minuta: e.target.value }))} rows={5} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 font-mono text-xs" />
+              <p className="text-xs text-gray-400 mt-1">Dica: isso influencia a minuta gerada pela IA (quando suportado pelo workflow). Use {'{{texto_resumo}}'} como marcador.</p>
+            </div>
+          </div>
+
+          <div className="mt-5 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Testar termos de risco</p>
+              <button type="button" onClick={() => setSettingsAdvancedOpen(v => !v)} className="text-xs px-3 py-1.5 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200">
+                {settingsAdvancedOpen ? 'Ocultar detalhes' : 'Mostrar detalhes'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Cole um trecho de andamento/movimentação e veja como ele seria classificado.</p>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-2">
+                <input
+                  value={settingsTestText}
+                  onChange={(e) => setSettingsTestText(e.target.value)}
+                  placeholder="Ex: Intimação para cumprimento de sentença em 48 horas..."
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+                />
+              </div>
+              <div className="flex items-center">
+                {riskTestResult ? (
+                  <span className={`w-full text-center text-sm font-semibold px-3 py-2 rounded-lg border ${riskTestResult === 'alto' ? 'bg-red-50 text-red-700 border-red-100' : riskTestResult === 'médio' ? 'bg-amber-50 text-amber-800 border-amber-100' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                    Resultado: {riskTestResult}
+                  </span>
+                ) : (
+                  <span className="w-full text-center text-sm px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-400">
+                    Digite um texto
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {settingsAdvancedOpen && (
+              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                <p><span className="font-semibold">Como funciona:</span> se o texto contiver algum termo de “Risco Alto”, ele vira Alto; senão, se contiver termo de “Risco Médio”, vira Médio.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <button onClick={handleSaveSettings} disabled={savingSettings} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold flex items-center gap-2">
+              {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar configurações
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center">
+            Usuários e papéis
+            <HelpTip text="Admins podem alterar o papel (admin/user) e banir/reativar usuários. ‘Banido’ impede o acesso, mas pode ser revertido." />
+          </h3>
+          <div className="space-y-3">
+            {profiles.map(profile => (
+              <div key={profile.id} className="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-900/50 p-2 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2 h-2 rounded-full ${profile.status === 'banned' ? 'bg-red-500' : 'bg-green-500'}`} title={profile.status === 'banned' ? 'Banido' : 'Ativo'} />
+                  <div>
+                    <p className={`font-medium ${profile.status === 'banned' ? 'text-gray-400 line-through' : 'text-gray-800 dark:text-gray-100'}`}>
+                      {profile.user_metadata?.full_name || profile.email}
+                    </p>
+                    <p className="text-xs text-gray-400">{profile.email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select value={profile.role || 'user'} onChange={(e) => handleUpdateRole(profile.id, e.target.value)} className="px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs">
+                    <option value="user">user</option>
+                    <option value="admin">admin</option>
+                  </select>
+                  <button 
+                    onClick={() => handleToggleBanClick(profile)}
+                    className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${profile.status === 'banned' ? 'text-green-600' : 'text-red-500'}`}
+                    title={profile.status === 'banned' ? 'Reativar Usuário' : 'Banir Usuário'}
+                  >
+                    {profile.status === 'banned' ? <CheckCircle2 className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+          <h3 className="font-bold text-gray-800 dark:text-white flex items-center"><LifeBuoy className="w-5 h-5 mr-2 text-red-500" /> Central SOS</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50 dark:bg-gray-900">
+              <tr>
+                <th className="p-3">Data</th>
+                <th className="p-3">Usuário</th>
+                <th className="p-3">Mensagem</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">SLA</th>
+                <th className="p-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {sosTickets.length === 0 && (
+                <tr><td colSpan="6" className="p-6 text-center text-gray-500">Nenhum chamado registrado.</td></tr>
+              )}
+              {sosTickets.map(ticket => {
+                const statusRaw = (ticket.status || 'aberto').toString().toLowerCase();
+                const isDone = statusRaw === 'concluido' || statusRaw === 'concluído' || statusRaw === 'feito' || statusRaw === 'resolvido';
+                const statusClass = isDone
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+                  : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200';
+                const actionState = sosActionLoading[ticket.id];
+                return (
+                <tr key={ticket.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                  <td className="p-3 text-gray-500 whitespace-nowrap">{ticket.created_at ? new Date(ticket.created_at).toLocaleString() : '-'}</td>
+                  <td className="p-3 text-gray-700 dark:text-gray-200">{ticket.contato || ticket.user_id || '-'}</td>
+                  <td className="p-3 text-gray-600 max-w-[260px] truncate">{ticket.mensagem || '-'}</td>
+                  <td className="p-3 text-xs"><span className={`px-2 py-1 rounded ${statusClass}`}>{ticket.status || 'aberto'}</span></td>
+                  <td className="p-3 text-xs text-gray-500">{ticket.sla_due_at ? new Date(ticket.sla_due_at).toLocaleString() : '-'}</td>
+                  <td className="p-3 text-right">
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        onClick={() => updateSosTicketStatus(ticket, isDone ? 'aberto' : 'concluido')}
+                        disabled={!!actionState}
+                        className={`px-2 py-1 rounded border text-xs font-medium transition-colors ${isDone ? 'border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/20' : 'border-green-200 text-green-700 hover:bg-green-50 dark:border-green-800 dark:text-green-200 dark:hover:bg-green-900/20'} disabled:opacity-50`}
+                        title={isDone ? 'Reabrir chamado' : 'Marcar como concluído'}
+                      >
+                        {actionState?.startsWith('status:') ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : isDone ? (
+                          <RefreshCw className="w-4 h-4" />
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => openDeleteSos(ticket)}
+                        disabled={!!actionState}
+                        className="px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/20 disabled:opacity-50"
+                        title="Excluir chamado"
+                      >
+                        {actionState === 'delete' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedRun && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedRun(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full p-5 border border-gray-200 dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-bold text-gray-800 dark:text-white">Payload / Erro</h4>
+              <button onClick={() => setSelectedRun(null)}><X className="w-4 h-4 text-gray-500" /></button>
+            </div>
+            <pre className="text-xs bg-gray-50 dark:bg-gray-900 p-3 rounded-lg overflow-auto max-h-[400px]">
+              {JSON.stringify(selectedRun.payload || selectedRun.error_message || selectedRun, null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {selectedAudit && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedAudit(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full p-5 border border-gray-200 dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-bold text-gray-800 dark:text-white">Detalhes do evento</h4>
+              <button onClick={() => setSelectedAudit(null)}><X className="w-4 h-4 text-gray-500" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
+                <p className="font-semibold text-gray-500 mb-2">Before</p>
+                <pre className="overflow-auto max-h-[240px]">{JSON.stringify(selectedAudit.before || selectedAudit.details?.before || {}, null, 2)}</pre>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
+                <p className="font-semibold text-gray-500 mb-2">After</p>
+                <pre className="overflow-auto max-h-[240px]">{JSON.stringify(selectedAudit.after || selectedAudit.details?.after || {}, null, 2)}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ban/Activate Confirmation Modal */}
+      <ConfirmModal
+        isOpen={banModalOpen}
+        onClose={() => { setBanModalOpen(false); setUserToToggle(null); }}
+        onConfirm={executeToggleBan}
+        loading={isTogglingBan}
+        title={userToToggle?.status === 'banned' ? 'Reativar Usuário?' : 'Banir Usuário?'}
+        description={
+          userToToggle
+            ? `Tem certeza que deseja ${userToToggle.status === 'banned' ? 'ATIVAR' : 'BANIR'} o usuário ${userToToggle.user_metadata?.full_name || userToToggle.email}? Essa ação pode ser revertida.`
+            : 'Confirma esta ação?'
+        }
+        confirmText={userToToggle?.status === 'banned' ? 'Sim, reativar' : 'Sim, banir'}
+        variant={userToToggle?.status === 'banned' ? 'success' : 'danger'}
+      />
+
+      <ConfirmModal
+        isOpen={sosDeleteModalOpen}
+        onClose={() => { if (!isDeletingSos) { setSosDeleteModalOpen(false); setSosToDelete(null); } }}
+        onConfirm={executeDeleteSos}
+        loading={isDeletingSos}
+        title="Excluir chamado SOS?"
+        description={
+          sosToDelete
+            ? `Esta ação removerá permanentemente o chamado de ${sosToDelete.contato || sosToDelete.user_id || 'usuário'} (${(sosToDelete.status || 'aberto').toString()}). Tem certeza?`
+            : 'Esta ação removerá permanentemente este chamado. Tem certeza?'
+        }
+        confirmText="Sim, excluir"
+        variant="danger"
+      />
     </div>
   );
 };
@@ -2465,6 +3602,15 @@ function App() {
 
   const [darkMode, setDarkMode] = useState(() => { const saved = localStorage.getItem('theme'); return saved === 'dark'; });
 
+  const [officeSettings, setOfficeSettings] = useState(() => {
+    try {
+      const raw = localStorage.getItem('office_settings_cache');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
   // Função para buscar o perfil do usuário e criar se não existir
   const fetchUserProfile = useCallback(async (userId, userEmail) => {
     try {
@@ -2509,13 +3655,36 @@ function App() {
 
   const [filters, setFilters] = useState({ search: '', status: '', uf: '', date: '', risk: '', uploadDate: '' });
 
-  const [viewMode, setViewMode] = useState('tiles');
-
-  
-
+  // Persistence of viewMode and currentView
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('app_viewMode') || 'tiles');
   const [isBackgroundProcessing, setIsBackgroundProcessing] = useState(false);
+  const [currentView, setCurrentView] = useState(() => localStorage.getItem('app_currentView') || 'dashboard');
 
-  const [currentView, setCurrentView] = useState('dashboard');
+  // Persist state changes
+  useEffect(() => { localStorage.setItem('app_viewMode', viewMode); }, [viewMode]);
+  useEffect(() => { localStorage.setItem('app_currentView', currentView); }, [currentView]);
+
+  // Scroll restoration logic
+  useEffect(() => {
+    const handleScroll = () => {
+      // Save scroll position only if not loading
+      if (!loading) sessionStorage.setItem('app_scrollPosition', window.scrollY.toString());
+    };
+    
+    // Throttle scroll save ideally, but simple for now
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      const savedScroll = sessionStorage.getItem('app_scrollPosition');
+      if (savedScroll) {
+        // Small timeout to ensure DOM is fully rendered
+        setTimeout(() => window.scrollTo(0, parseInt(savedScroll)), 100);
+      }
+    }
+  }, [loading]);
 
   const [drafts, setDrafts] = useState({}); 
 
@@ -2534,6 +3703,42 @@ function App() {
 
     return () => subscription.unsubscribe();
   }, [fetchUserProfile]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      try {
+        if (e?.detail) setOfficeSettings(e.detail);
+      } catch {}
+    };
+    window.addEventListener('office_settings_updated', handler);
+    return () => window.removeEventListener('office_settings_updated', handler);
+  }, []);
+
+  useEffect(() => {
+    const loadOfficeSettings = async () => {
+      if (!session) return;
+      try {
+        const { data, error } = await supabase
+          .from('office_settings')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(1);
+        if (error) return;
+        const next = data?.[0] ? {
+          id: 1,
+          alert_window_days: data[0].alert_window_days ?? 7,
+          risk_high_terms: data[0].risk_high_terms ?? 'alto',
+          risk_medium_terms: data[0].risk_medium_terms ?? 'médio,medio',
+          template_minuta: data[0].template_minuta ?? ''
+        } : null;
+        if (next) {
+          setOfficeSettings(next);
+          try { localStorage.setItem('office_settings_cache', JSON.stringify(next)); } catch {}
+        }
+      } catch {}
+    };
+    loadOfficeSettings();
+  }, [session]);
 
 
 
@@ -2832,7 +4037,7 @@ function App() {
 
         headers: { 'Content-Type': 'application/json' },
 
-        body: JSON.stringify({ texto_resumo: resumo })
+        body: JSON.stringify({ texto_resumo: resumo, template_minuta: officeSettings?.template_minuta || '' })
 
       });
 
@@ -3197,7 +4402,7 @@ function App() {
 
 
 
-  if (!session) return <><Toaster position="top-center" /><LoginPage /></>;
+  if (!session) return <><Toaster position="top-center" richColors closeButton /><LoginPage /></>;
 
 
 
@@ -3205,7 +4410,7 @@ function App() {
 
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 font-sans flex flex-col transition-colors duration-200">
 
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" richColors closeButton />
 
       <Header 
 
@@ -3403,6 +4608,8 @@ function App() {
             ? `Esta ação removerá permanentemente o processo ${processToDelete.numero_cnj} e seus históricos do banco de dados. Tem certeza?`
             : 'Esta ação removerá permanentemente este processo e seus históricos do banco de dados. Tem certeza?'
         }
+        confirmText="Sim, excluir"
+        variant="danger"
       />
 
       <ConfirmModal 
@@ -3418,6 +4625,10 @@ function App() {
         title="Apagar TODOS os processos?" 
 
         description="Esta ação removerá permanentemente todos os processos e seus históricos do banco de dados. Tem certeza absoluta?" 
+
+        confirmText="Sim, apagar tudo"
+
+        variant="danger"
 
       />
 
