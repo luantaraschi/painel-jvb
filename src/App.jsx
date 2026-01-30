@@ -2717,30 +2717,31 @@ function App() {
 
 
 
-  const fetchProcesses = useCallback((silent = false) => {
+  const fetchProcesses = useCallback(async (silent = false) => {
 
     if (!session) return;
 
-    if (!silent) setLoading(true); 
-
-    const urlSemCache = `${API_GET_URL}?t=${new Date().getTime()}`;
-
-    fetch(urlSemCache)
-
-      .then(async response => {
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
-        if (!text) {
-          throw new Error('Empty response from server');
-        }
-        return JSON.parse(text);
-      })
-
-      .then(data => {
-
-        const listaRaw = Array.isArray(data) ? data : (data.data || []);
+    if (!silent) setLoading(true);
+    
+    try {
+      // Tentar buscar do n8n primeiro
+      const urlSemCache = `${API_GET_URL}?t=${new Date().getTime()}`;
+      const response = await fetch(urlSemCache, { 
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const text = await response.text();
+      if (!text || text.trim() === '') {
+        throw new Error('Empty response');
+      }
+      
+      const data = JSON.parse(text);
+      const listaRaw = Array.isArray(data) ? data : (data.data || []);
 
         
 
@@ -2801,18 +2802,33 @@ function App() {
         
 
         setProcesses(listaUnica);
-
         if (!silent) setLoading(false);
-
-      })
-
-      .catch(error => { 
-        console.error("Erro no fetch:", error); 
+        
+    } catch (error) {
+      console.warn("Webhook n8n falhou, tentando Supabase direto:", error);
+      
+      // Fallback: buscar direto do Supabase
+      try {
+        const { data: processosData, error: supaError } = await supabase
+          .from('processos')
+          .select('*')
+          .order('created_at', { ascending: false });
+          
+        if (supaError) throw supaError;
+        
+        setProcesses(processosData || []);
         if (!silent) {
-          toast.error(`Erro ao carregar processos: ${error.message}`);
+          toast.info('Carregado do banco de dados (n8n offline)');
           setLoading(false);
         }
-      });
+      } catch (supaError) {
+        console.error("Erro Supabase:", supaError);
+        if (!silent) {
+          toast.error('Não foi possível carregar processos');
+          setLoading(false);
+        }
+      }
+    }
 
   }, [session]);
 
