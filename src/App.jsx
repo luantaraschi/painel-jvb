@@ -86,7 +86,7 @@ const getProfileDisplayName = (profile) => {
 // SosModal foi movido para ./components/SosModal.jsx
 
 // --- 2.9 ADMIN DASHBOARD ---
-const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
+const AdminDashboard = ({ onBack, session, onOpenProcess, processesOverride }) => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ totalUsers: 0, activeToday: 0, totalActions: 0 });
   const [kpis, setKpis] = useState({
@@ -305,7 +305,8 @@ const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
 
         // KPIs - Prazos
         const prazosCounts = { vencidos: 0, hoje: 0, seteDias: 0, semResponsavel: 0 };
-        processos.forEach(p => {
+        const prazosProcessos = (processesOverride && processesOverride.length > 0) ? processesOverride : processos;
+        prazosProcessos.forEach(p => {
           const date = getEffectiveDate(p);
           const days = getDaysToDue(date);
           if (days !== null) {
@@ -444,7 +445,7 @@ const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
       }
     };
     fetchData();
-  }, []);
+  }, [processesOverride]);
 
   const auditUsers = useMemo(() => {
     const users = [...new Set(auditLogs.map(l => l.userName).filter(Boolean))].sort();
@@ -3456,6 +3457,7 @@ function App() {
               onBack={() => setCurrentView('dashboard')}
               session={session}
               onOpenProcess={handleOpenProcessFromAdmin}
+              processesOverride={processes}
             />
         ) : (
 
