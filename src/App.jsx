@@ -349,10 +349,11 @@ const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
         });
 
         const highRiskNoTask = processos.filter(p => {
-          const risk = (p.risco || '').toLowerCase();
+          const risk = (p.risco || '').toLowerCase().trim();
           if (!risk.includes('alto')) return false;
           const tasks = tasksByProcess[p.id] || [];
-          return !tasks.some(t => !isTaskCompleted(t) && t.status_tarefa !== 'minuta');
+          const hasOpenTask = tasks.some(t => !isTaskCompleted(t) && t.status_tarefa !== 'minuta');
+          return !hasOpenTask;
         });
 
         const avgCompletionHours = completionDurations.length
@@ -1756,10 +1757,11 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
       
 
       if (!response.ok) throw new Error('Falha na API do chat');
-
       
-
-      const data = await response.json();
+      const text = await response.text();
+      if (!text) throw new Error('Resposta vazia do servidor');
+      
+      const data = JSON.parse(text);
 
       const answer = data?.answer || data?.resposta || data?.output || data?.message || (typeof data === 'string' ? data : 'Não encontrei uma resposta no processo.');
 
@@ -2725,7 +2727,16 @@ function App() {
 
     fetch(urlSemCache)
 
-      .then(response => response.json())
+      .then(async response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const text = await response.text();
+        if (!text) {
+          throw new Error('Empty response from server');
+        }
+        return JSON.parse(text);
+      })
 
       .then(data => {
 
@@ -2795,7 +2806,13 @@ function App() {
 
       })
 
-      .catch(error => { console.error("Erro no fetch:", error); if (!silent) setLoading(false); });
+      .catch(error => { 
+        console.error("Erro no fetch:", error); 
+        if (!silent) {
+          toast.error(`Erro ao carregar processos: ${error.message}`);
+          setLoading(false);
+        }
+      });
 
   }, [session]);
 
@@ -2992,8 +3009,13 @@ function App() {
         body: JSON.stringify({ texto_resumo: resumo, template_minuta: officeSettings?.template_minuta || '' })
 
       });
-
-      const data = await response.json();
+      
+      if (!response.ok) throw new Error(`Erro na API: ${response.status}`);
+      
+      const text = await response.text();
+      if (!text) throw new Error('Resposta vazia do servidor');
+      
+      const data = JSON.parse(text);
 
       const finalText = findTextInObject(data);
 
