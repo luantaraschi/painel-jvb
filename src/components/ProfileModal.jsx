@@ -106,6 +106,8 @@ const ProfileModal = ({ isOpen, onClose, user, onUserUpdated }) => {
               </button>
             </div>
             <input
+              id="profile-avatar-upload"
+              name="avatar"
               ref={fileInputRef}
               type="file"
               accept="image/*"
@@ -114,8 +116,10 @@ const ProfileModal = ({ isOpen, onClose, user, onUserUpdated }) => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome de Exibição</label>
+            <label htmlFor="profile-full-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome de Exibição</label>
             <input
+              id="profile-full-name"
+              name="full_name"
               type="text"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
@@ -124,8 +128,10 @@ const ProfileModal = ({ isOpen, onClose, user, onUserUpdated }) => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nova Senha (Opcional)</label>
+            <label htmlFor="profile-new-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nova Senha (Opcional)</label>
             <input
+              id="profile-new-password"
+              name="password"
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}

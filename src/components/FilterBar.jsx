@@ -22,6 +22,8 @@ const FilterBar = ({
         <div className="relative w-full xl:w-[20%]">
           <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
           <input
+            id="filter-search"
+            name="search"
             type="text"
             placeholder="Buscar Cliente/CNJ..."
             className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 dark:text-gray-200 transition-all truncate"

@@ -137,6 +137,8 @@ const SosModal = ({ isOpen, onClose, user }) => {
                   <UploadCloud className="w-10 h-10 mx-auto text-gray-400 mb-2" />
                   <p className="text-sm text-gray-500 dark:text-gray-400">Clique ou arraste imagens aqui</p>
                   <input
+                    id="sos-screenshots"
+                    name="screenshots"
                     type="file"
                     ref={fileInputRef}
                     onChange={handleFileChange}

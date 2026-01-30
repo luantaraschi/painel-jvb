@@ -97,7 +97,7 @@ const AgendaView = ({ processes, onProcessClick, onUpdateData }) => {
             <div className="mt-3 flex flex-wrap items-center gap-3">
               {isEditing ? (
                 <>
-                  <input type="date" value={editingDate} onChange={(e) => setEditingDate(e.target.value)} className="text-xs p-1.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white" />
+                  <input id="agenda-edit-date" name="due_date" type="date" value={editingDate} onChange={(e) => setEditingDate(e.target.value)} className="text-xs p-1.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-white" />
                   <button onClick={() => handleSaveDate(process)} disabled={savingId === process.id} className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">
                     {savingId === process.id ? 'Salvando...' : 'Salvar'}
                   </button>

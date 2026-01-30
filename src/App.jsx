@@ -929,9 +929,9 @@ const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
               <option value="all">Recurso</option>
               {auditResources.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
-            <input type="date" value={auditFilters.dateFrom} onChange={(e) => setAuditFilters(prev => ({ ...prev, dateFrom: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
-            <input type="date" value={auditFilters.dateTo} onChange={(e) => setAuditFilters(prev => ({ ...prev, dateTo: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
-            <input type="text" value={auditFilters.search} onChange={(e) => setAuditFilters(prev => ({ ...prev, search: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="Busca rápida" />
+            <input id="audit-date-from" name="dateFrom" type="date" value={auditFilters.dateFrom} onChange={(e) => setAuditFilters(prev => ({ ...prev, dateFrom: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+            <input id="audit-date-to" name="dateTo" type="date" value={auditFilters.dateTo} onChange={(e) => setAuditFilters(prev => ({ ...prev, dateTo: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+            <input id="audit-search" name="search" type="text" value={auditFilters.search} onChange={(e) => setAuditFilters(prev => ({ ...prev, search: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="Busca rápida" />
           </div>
         </div>
         <div className="overflow-x-auto max-h-[420px]">
@@ -1100,13 +1100,13 @@ const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Janela de Alerta</label>
-              <input type="number" value={settings.alert_window_days} onChange={(e) => setSettings(prev => ({ ...prev, alert_window_days: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+              <label htmlFor="alert-window-days" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Janela de Alerta</label>
+              <input id="alert-window-days" name="alert_window_days" type="number" value={settings.alert_window_days} onChange={(e) => setSettings(prev => ({ ...prev, alert_window_days: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
               <p className="text-xs text-gray-400 mt-1">Dias de antecedência para avisos de prazo.</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Termos de Risco Alto</label>
-              <input type="text" value={settings.risk_high_terms} onChange={(e) => setSettings(prev => ({ ...prev, risk_high_terms: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+              <label htmlFor="risk-high-terms" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Termos de Risco Alto</label>
+              <input id="risk-high-terms" name="risk_high_terms" type="text" value={settings.risk_high_terms} onChange={(e) => setSettings(prev => ({ ...prev, risk_high_terms: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
               <p className="text-xs text-gray-400 mt-1">Palavras separadas por vírgula (ex: liminar, urgente).</p>
               <div className="mt-2 flex flex-wrap gap-1">
                 {['liminar', 'tutela', 'urgente', 'bloqueio', 'penhora', 'intimação'].map(term => (
@@ -1123,8 +1123,8 @@ const AdminDashboard = ({ onBack, session, onOpenProcess }) => {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Termos de Risco Médio</label>
-              <input type="text" value={settings.risk_medium_terms} onChange={(e) => setSettings(prev => ({ ...prev, risk_medium_terms: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+              <label htmlFor="risk-medium-terms" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Termos de Risco Médio</label>
+              <input id="risk-medium-terms" name="risk_medium_terms" type="text" value={settings.risk_medium_terms} onChange={(e) => setSettings(prev => ({ ...prev, risk_medium_terms: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
               <p className="text-xs text-gray-400 mt-1">Palavras separadas por vírgula.</p>
               <div className="mt-2 flex flex-wrap gap-1">
                 {['audiência', 'citação', 'contestação', 'recurso', 'embargo', 'perícia'].map(term => (
@@ -1181,6 +1181,8 @@ RESUMO:
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="md:col-span-2">
                 <input
+                  id="risk-test-text"
+                  name="risk_test_text"
                   value={settingsTestText}
                   onChange={(e) => setSettingsTestText(e.target.value)}
                   placeholder="Ex: Intimação para cumprimento de sentença em 48 horas..."
@@ -2013,7 +2015,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
                <div className="flex gap-2 mt-2">
 
-                   <input type="text" value={editForm.numero_cnj} onChange={e => setEditForm({...editForm, numero_cnj: e.target.value})} className="text-sm bg-gray-50 border border-gray-300 rounded px-2 py-1 w-full max-w-xs dark:bg-gray-900 dark:border-gray-600 dark:text-white" />
+                   <input id="edit-numero-cnj" name="numero_cnj" type="text" value={editForm.numero_cnj} onChange={e => setEditForm({...editForm, numero_cnj: e.target.value})} className="text-sm bg-gray-50 border border-gray-300 rounded px-2 py-1 w-full max-w-xs dark:bg-gray-900 dark:border-gray-600 dark:text-white" />
 
                </div>
 
@@ -2171,7 +2173,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
                             {isEditing ? (
 
-                                <input type="date" value={editForm.data_prazo_final} onChange={e => setEditForm({...editForm, data_prazo_final: e.target.value})} className="text-xs p-1 rounded border border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white" />
+                                <input id="edit-prazo-final" name="data_prazo_final" type="date" value={editForm.data_prazo_final} onChange={e => setEditForm({...editForm, data_prazo_final: e.target.value})} className="text-xs p-1 rounded border border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white" />
 
                             ) : (
 
@@ -2209,7 +2211,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
               {isEditing ? (
 
-                 <input type="text" value={editForm.cliente_nome} onChange={e => setEditForm({...editForm, cliente_nome: e.target.value})} className="w-full text-sm bg-gray-50 border border-gray-300 rounded px-3 py-2 dark:bg-gray-900 dark:border-gray-600 dark:text-white mb-2" />
+                 <input id="edit-cliente-nome" name="cliente_nome" type="text" value={editForm.cliente_nome} onChange={e => setEditForm({...editForm, cliente_nome: e.target.value})} className="w-full text-sm bg-gray-50 border border-gray-300 rounded px-3 py-2 dark:bg-gray-900 dark:border-gray-600 dark:text-white mb-2" />
 
               ) : (
 
@@ -2301,7 +2303,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
                     onDragLeave={() => setIsDraggingFile(false)}
                     onDrop={handleDrop}
                   >
-                    <input type="file" accept="image/*,.pdf" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFile(e.target.files[0])} />
+                    <input id="task-file-upload" name="task_file" type="file" accept="image/*,.pdf" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFile(e.target.files[0])} />
                     <UploadCloud className="w-4 h-4 mb-2" />
                     <span>Arraste e solte ou clique para selecionar (PDF ou imagem até 10MB)</span>
                   </div>
@@ -2522,7 +2524,7 @@ const ProcessDetailsModal = ({ process, onClose, user, onUpdateStatus, onUpdateD
 
             <div className="flex gap-3">
 
-              <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }} placeholder="Pergunte algo sobre este processo..." className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input id="chat-input" name="chat_message" type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }} placeholder="Pergunte algo sobre este processo..." className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" />
 
               <button onClick={handleSendChat} disabled={isChatLoading} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-semibold shadow-sm disabled:opacity-60 transition-colors"><Send className="w-4 h-4" /> Enviar</button>
 

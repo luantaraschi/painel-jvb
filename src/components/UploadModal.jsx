@@ -22,6 +22,8 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
         <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">Importar Processos</h2>
         <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer relative">
           <input
+            id="upload-pdf"
+            name="pdf_file"
             type="file"
             accept=".pdf"
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
